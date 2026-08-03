@@ -8,8 +8,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
-    url: 'YOUR_EXISTING_SUPABASE_URL',
-    publishableKey: 'YOUR_EXISTING_SUPABASE_KEY',
+    url: 'https://oqvduvjghksjavyzkual.supabase.co',
+    publishableKey: 'sb_publishable_OiTRo2YDMhmOvEAa-JktAQ_SMfEZHXF',
   );
 
   runApp(const PocketPotApp());
