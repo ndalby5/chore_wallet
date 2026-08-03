@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/account_page.dart';
 import 'screens/home_page.dart';
 import 'screens/tasks_page.dart';
 import 'screens/wallet_page.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://oqvduvjghksjavyzkual.supabase.co',
+    publishableKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xdmR1dmpnaGtzamF2eXprdWFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3ODUyNTIsImV4cCI6MjEwMTM2MTI1Mn0.Oev7vNXcU28YYMxT72cWvrztASPTel5Z55pfLTWsAh8',
+  );
+
   runApp(const ChoreWalletApp());
 }
-
+ 
 class ChoreWalletApp extends StatelessWidget {
   const ChoreWalletApp({super.key});
 
