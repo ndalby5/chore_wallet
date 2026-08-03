@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../widgets/task_card.dart';
-import '../widgets/wallet_card.dart';
+import '../../widgets/task_card.dart';
+import '../../widgets/wallet_card.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});

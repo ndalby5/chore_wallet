@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'screens/account_page.dart';
-import 'screens/home_page.dart';
-import 'screens/tasks_page.dart';
-import 'screens/wallet_page.dart';
+import 'features/account/account_page.dart';
+import 'features/home/home_page.dart';
+import 'features/tasks/tasks_page.dart';
+import 'features/wallet/wallet_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
