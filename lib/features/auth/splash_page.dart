@@ -7,13 +7,7 @@ class SplashPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Scaffold(
       body: Center(
-        child: Text(
-          'PocketPot',
-          style: TextStyle(
-            fontSize: 34,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        child: CircularProgressIndicator(),
       ),
     );
   }
