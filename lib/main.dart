@@ -30,7 +30,7 @@ class PocketPotApp extends StatelessWidget {
           seedColor: AppColors.primary,
         ),
       ),
-      initialRoute: '/welcome',
+      initialRoute: '/',
       onGenerateRoute: AppRouter.generateRoute,
     );
   }

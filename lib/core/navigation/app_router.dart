@@ -5,6 +5,7 @@ import '../../features/auth/signup_page.dart';
 import '../../features/auth/welcome_page.dart';
 import 'app_shell.dart';
 import '../../features/friends/invite_page.dart'; 
+import '../../features/auth/auth_gate.dart';
 
 class AppRouter {
   static Route<dynamic> generateRoute(RouteSettings settings) {
@@ -30,6 +31,11 @@ class AppRouter {
         return MaterialPageRoute(
           builder: (_) => const AppShell(),
         );
+
+      case '/':
+        return MaterialPageRoute(
+           builder: (_) => const AuthGate(),
+        );  
 
       case '/invite':
         final token = uri.queryParameters['token'];
