@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../features/account/account_page.dart';
 import '../../features/home/home_page.dart';
 import '../../features/tasks/tasks_page.dart';
-import '../../features/wallet/wallet_page.dart';
+import '../../features/friends/friends_page.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -18,7 +18,7 @@ class _AppShellState extends State<AppShell> {
   static const List<Widget> _pages = [
     HomePage(),
     TasksPage(),
-    WalletPage(),
+    FriendsPage(),
     AccountPage(),
   ];
 
@@ -50,9 +50,9 @@ class _AppShellState extends State<AppShell> {
             label: 'Tasks',
           ),
           NavigationDestination(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            selectedIcon: Icon(Icons.account_balance_wallet),
-            label: 'Wallet',
+            icon: Icon(Icons.people_outline),
+            selectedIcon: Icon(Icons.people),
+            label: 'Friends',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
