@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/balance_service.dart';
 import '../../theme/app_colors.dart';
 import '../tasks/add_task_page.dart';
+import 'record_payment_page.dart';
 
 class FriendDetailPage extends StatefulWidget {
   final String friendId;
@@ -129,6 +130,28 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
           content: Text(
             '${widget.friendName} has been assigned the task.',
           ),
+        ),
+      );
+
+      await _refreshPage();
+    }
+  }
+
+  Future<void> _openRecordPayment() async {
+    final paymentRecorded = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RecordPaymentPage(
+          friendId: widget.friendId,
+          friendName: widget.friendName,
+        ),
+      ),
+    );
+
+    if (paymentRecorded == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment recorded.'),
         ),
       );
 
@@ -288,7 +311,7 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
               20,
               16,
               20,
-              120,
+              170,
             ),
             children: [
               if (_isLoading)
@@ -320,17 +343,38 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddTask,
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text(
-          'Add Task',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'record_payment',
+            onPressed: _openRecordPayment,
+            backgroundColor: Colors.white,
+            foregroundColor: AppColors.primary,
+            icon: const Icon(Icons.payments_outlined),
+            label: const Text(
+              'Record Payment',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
-        ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'add_task',
+            onPressed: _openAddTask,
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add),
+            label: const Text(
+              'Add Task',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
       floatingActionButtonLocation:
           FloatingActionButtonLocation.endFloat,
