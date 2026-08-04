@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/balance_summary.dart';
 import '../../services/balance_service.dart';
 import '../../theme/app_colors.dart';
+import 'friend_detail_page.dart'; 
 
 class FriendsPage extends StatefulWidget {
   const FriendsPage({super.key});
@@ -605,7 +606,21 @@ class _FriendsPageState extends State<FriendsPage> {
         ],
       ),
       onTap: () {
-        // The friend detail page will be added next.
+        final friendId = friend['id']?.toString();
+
+        if (friendId == null || friendId.isEmpty) {
+          return;
+        }
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => FriendDetailPage(
+              friendId: friendId,
+              friendName: name,
+            ),
+          ),
+        );
       },
     );
   }
