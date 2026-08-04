@@ -4,6 +4,7 @@ import '../../features/account/account_page.dart';
 import '../../features/home/home_page.dart';
 import '../../features/tasks/tasks_page.dart';
 import '../../features/friends/friends_page.dart';
+import '../../features/tasks/add_task_page.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -35,6 +36,26 @@ class _AppShellState extends State<AppShell> {
         index: _selectedIndex,
         children: _pages,
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AddTaskPage(),
+            ),
+          );
+        },
+        backgroundColor: const Color(0xFF6C4DFF),
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text(
+          'Add Task',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: _selectPage,
