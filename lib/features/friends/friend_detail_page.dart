@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/balance_service.dart';
 import '../../theme/app_colors.dart';
@@ -23,26 +24,67 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
 
   bool _isLoading = true;
   String? _errorMessage;
+
   int _balancePence = 0;
+  List<Map<String, dynamic>> _transactions = [];
 
   @override
   void initState() {
     super.initState();
-    _loadBalance();
+    _loadPage();
   }
 
-  Future<void> _loadBalance() async {
+  Future<void> _loadPage() async {
+    final currentUser = Supabase.instance.client.auth.currentUser;
+
+    if (currentUser == null) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = 'You need to sign in again.';
+        _isLoading = false;
+      });
+      return;
+    }
+
     try {
       final balance = await _balanceService.getBalanceWithFriend(
         widget.friendId,
       );
 
+      final transactionRows = await Supabase.instance.client
+          .from('transactions')
+          .select(
+            'id, user_id, friend_id, task_id, '
+            'amount_pence, type, note, created_at',
+          )
+          .or(
+            'and(user_id.eq.${currentUser.id},'
+            'friend_id.eq.${widget.friendId}),'
+            'and(user_id.eq.${widget.friendId},'
+            'friend_id.eq.${currentUser.id})',
+          )
+          .order(
+            'created_at',
+            ascending: false,
+          );
+
       if (!mounted) return;
 
       setState(() {
         _balancePence = balance;
-        _isLoading = false;
+        _transactions =
+            List<Map<String, dynamic>>.from(transactionRows);
+
         _errorMessage = null;
+        _isLoading = false;
+      });
+    } on PostgrestException catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = error.message;
+        _isLoading = false;
       });
     } on BalanceServiceException catch (error) {
       if (!mounted) return;
@@ -59,6 +101,15 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _refreshPage() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    await _loadPage();
   }
 
   Future<void> _openAddTask() async {
@@ -80,7 +131,17 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
           ),
         ),
       );
+
+      await _refreshPage();
     }
+  }
+
+  int _readPence(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   String _formatMoney(int pence) {
@@ -111,6 +172,100 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
     return 'You are all settled up';
   }
 
+  String _formatDate(dynamic value) {
+    if (value == null) {
+      return '';
+    }
+
+    final date = DateTime.tryParse(value.toString());
+
+    if (date == null) {
+      return '';
+    }
+
+    final localDate = date.toLocal();
+
+    final day = localDate.day.toString().padLeft(2, '0');
+    final month = localDate.month.toString().padLeft(2, '0');
+
+    return '$day/$month/${localDate.year}';
+  }
+
+  bool _isMoneyOwedToCurrentUser(
+    Map<String, dynamic> transaction,
+  ) {
+    final currentUserId =
+        Supabase.instance.client.auth.currentUser?.id;
+
+    return transaction['user_id']?.toString() == currentUserId;
+  }
+
+  String _transactionAmount(
+    Map<String, dynamic> transaction,
+  ) {
+    final amountPence = _readPence(
+      transaction['amount_pence'],
+    );
+
+    if (_isMoneyOwedToCurrentUser(transaction)) {
+      return '+${_formatMoney(amountPence)}';
+    }
+
+    return '-${_formatMoney(amountPence)}';
+  }
+
+  Color _transactionAmountColor(
+    Map<String, dynamic> transaction,
+  ) {
+    if (_isMoneyOwedToCurrentUser(transaction)) {
+      return AppColors.success;
+    }
+
+    return AppColors.danger;
+  }
+
+  IconData _transactionIcon(
+    Map<String, dynamic> transaction,
+  ) {
+    final type = transaction['type']?.toString();
+
+    switch (type) {
+      case 'payment':
+        return Icons.payments_outlined;
+
+      case 'adjustment':
+        return Icons.tune_outlined;
+
+      case 'reward':
+      default:
+        return Icons.task_alt;
+    }
+  }
+
+  String _transactionTitle(
+    Map<String, dynamic> transaction,
+  ) {
+    final note = transaction['note']?.toString().trim();
+
+    if (note != null && note.isNotEmpty) {
+      return note;
+    }
+
+    final type = transaction['type']?.toString();
+
+    switch (type) {
+      case 'payment':
+        return 'Payment';
+
+      case 'adjustment':
+        return 'Balance adjustment';
+
+      case 'reward':
+      default:
+        return 'Task reward';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -126,7 +281,7 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
       ),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: _loadBalance,
+          onRefresh: _refreshPage,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
@@ -156,7 +311,10 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                _buildEmptyActivity(),
+                if (_transactions.isEmpty)
+                  _buildEmptyActivity()
+                else
+                  _buildActivityCard(),
               ],
             ],
           ),
@@ -211,6 +369,75 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
     );
   }
 
+  Widget _buildActivityCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFEAE8F2),
+        ),
+      ),
+      child: Column(
+        children: List.generate(
+          _transactions.length,
+          (index) {
+            final transaction = _transactions[index];
+
+            return Column(
+              children: [
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 7,
+                  ),
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        AppColors.primary.withValues(
+                      alpha: 0.12,
+                    ),
+                    child: Icon(
+                      _transactionIcon(transaction),
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  title: Text(
+                    _transactionTitle(transaction),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    _formatDate(
+                      transaction['created_at'],
+                    ),
+                    style: const TextStyle(
+                      color: AppColors.subtitle,
+                    ),
+                  ),
+                  trailing: Text(
+                    _transactionAmount(transaction),
+                    style: TextStyle(
+                      color: _transactionAmountColor(
+                        transaction,
+                      ),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (index < _transactions.length - 1)
+                  const Divider(
+                    height: 1,
+                    indent: 72,
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmptyActivity() {
     return Container(
       width: double.infinity,
@@ -222,12 +449,31 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
           color: const Color(0xFFEAE8F2),
         ),
       ),
-      child: const Text(
-        'Transaction history will appear here next.',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: AppColors.subtitle,
-        ),
+      child: const Column(
+        children: [
+          Icon(
+            Icons.receipt_long_outlined,
+            size: 40,
+            color: AppColors.primary,
+          ),
+          SizedBox(height: 12),
+          Text(
+            'No activity yet',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          SizedBox(height: 7),
+          Text(
+            'Approved task rewards and payments will appear here.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.subtitle,
+              height: 1.4,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -248,7 +494,7 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
         ),
         const SizedBox(height: 16),
         OutlinedButton(
-          onPressed: _loadBalance,
+          onPressed: _refreshPage,
           child: const Text('Try again'),
         ),
       ],
