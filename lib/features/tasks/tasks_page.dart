@@ -120,6 +120,43 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
+  Future<void> _approveTask(String taskId) async {
+    try {
+      await Supabase.instance.client.rpc(
+        'approve_task',
+        params: {
+          'task_id': taskId,
+        },
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Task approved.'),
+        ),
+      );
+
+      await _loadTasks();
+    } on PostgrestException catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not approve the task.'),
+        ),
+      );
+    }
+  }
+
   Future<void> _refreshTasks() async {
     setState(() {
       _isLoading = true;
@@ -155,6 +192,35 @@ class _TasksPageState extends State<TasksPage> {
     return '${localDate.day.toString().padLeft(2, '0')}/'
         '${localDate.month.toString().padLeft(2, '0')}/'
         '${localDate.year}';
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'completed':
+        return 'Awaiting approval';
+      case 'approved':
+        return 'Approved';
+      case 'declined':
+        return 'Declined';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return 'Pending';
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'completed':
+        return AppColors.warning;
+      case 'approved':
+        return AppColors.success;
+      case 'declined':
+      case 'cancelled':
+        return AppColors.danger;
+      default:
+        return AppColors.subtitle;
+    }
   }
 
   @override
@@ -316,6 +382,7 @@ class _TasksPageState extends State<TasksPage> {
 
   Widget _buildAssignedTaskCard(Map<String, dynamic> task) {
     final status = task['status']?.toString() ?? 'pending';
+    final taskId = task['id']?.toString();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -350,6 +417,7 @@ class _TasksPageState extends State<TasksPage> {
               ],
             ),
           ),
+          const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -360,14 +428,20 @@ class _TasksPageState extends State<TasksPage> {
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                _statusLabel(status),
-                style: TextStyle(
-                  color: _statusColor(status),
-                  fontWeight: FontWeight.w700,
+              const SizedBox(height: 8),
+              if (status == 'completed' && taskId != null)
+                FilledButton(
+                  onPressed: () => _approveTask(taskId),
+                  child: const Text('Approve'),
+                )
+              else
+                Text(
+                  _statusLabel(status),
+                  style: TextStyle(
+                    color: _statusColor(status),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
             ],
           ),
         ],
@@ -394,34 +468,5 @@ class _TasksPageState extends State<TasksPage> {
         ),
       ),
     );
-  }
-
-  String _statusLabel(String status) {
-    switch (status) {
-      case 'completed':
-        return 'Awaiting approval';
-      case 'approved':
-        return 'Approved';
-      case 'declined':
-        return 'Declined';
-      case 'cancelled':
-        return 'Cancelled';
-      default:
-        return 'Pending';
-    }
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'completed':
-        return AppColors.warning;
-      case 'approved':
-        return AppColors.success;
-      case 'declined':
-      case 'cancelled':
-        return AppColors.danger;
-      default:
-        return AppColors.subtitle;
-    }
   }
 }
