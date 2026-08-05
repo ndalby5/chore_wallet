@@ -14,6 +14,8 @@ class TasksPage extends StatefulWidget {
 
 class _TasksPageState extends State<TasksPage> {
   bool _isLoading = true;
+  bool _showHistory = false;
+
   String? _errorMessage;
 
   List<Map<String, dynamic>> _myTasks = [];
@@ -26,7 +28,8 @@ class _TasksPageState extends State<TasksPage> {
   }
 
   Future<void> _loadTasks() async {
-    final currentUser = Supabase.instance.client.auth.currentUser;
+    final currentUser =
+        Supabase.instance.client.auth.currentUser;
 
     if (currentUser == null) {
       if (!mounted) return;
@@ -52,9 +55,8 @@ class _TasksPageState extends State<TasksPage> {
             ascending: false,
           );
 
-      final tasks = List<Map<String, dynamic>>.from(
-        taskRows,
-      );
+      final tasks =
+          List<Map<String, dynamic>>.from(taskRows);
 
       final profileIds = tasks
           .expand<String>((task) {
@@ -75,17 +77,19 @@ class _TasksPageState extends State<TasksPage> {
       List<Map<String, dynamic>> profiles = [];
 
       if (profileIds.isNotEmpty) {
-        final profileRows = await Supabase.instance.client
-            .from('profiles')
-            .select(
-              'id, name, avatar_path',
-            )
-            .inFilter(
-              'id',
-              profileIds,
-            );
+        final profileRows =
+            await Supabase.instance.client
+                .from('profiles')
+                .select(
+                  'id, name, avatar_path',
+                )
+                .inFilter(
+                  'id',
+                  profileIds,
+                );
 
-        profiles = List<Map<String, dynamic>>.from(
+        profiles =
+            List<Map<String, dynamic>>.from(
           profileRows,
         );
       }
@@ -158,6 +162,67 @@ class _TasksPageState extends State<TasksPage> {
         _isLoading = false;
       });
     }
+  }
+
+  List<Map<String, dynamic>> get _activeMyTasks {
+    return _myTasks.where((task) {
+      final status =
+          task['status']?.toString() ?? 'pending';
+
+      return status == 'pending' ||
+          status == 'completed';
+    }).toList();
+  }
+
+  List<Map<String, dynamic>>
+      get _activeAssignedByMe {
+    return _assignedByMe.where((task) {
+      final status =
+          task['status']?.toString() ?? 'pending';
+
+      return status == 'pending' ||
+          status == 'completed';
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> get _historyTasks {
+    final currentUserId =
+        Supabase.instance.client.auth.currentUser?.id;
+
+    final historyStatuses = {
+      'approved',
+      'cancelled',
+      'declined',
+    };
+
+    final combinedTasks = <Map<String, dynamic>>[
+      ..._myTasks,
+      ..._assignedByMe,
+    ];
+
+    final seenTaskIds = <String>{};
+
+    return combinedTasks.where((task) {
+      final taskId = task['id']?.toString();
+      final status = task['status']?.toString();
+
+      if (taskId == null ||
+          status == null ||
+          !historyStatuses.contains(status)) {
+        return false;
+      }
+
+      if (seenTaskIds.contains(taskId)) {
+        return false;
+      }
+
+      seenTaskIds.add(taskId);
+
+      return task['assigned_to']?.toString() ==
+              currentUserId ||
+          task['assigned_by']?.toString() ==
+              currentUserId;
+    }).toList();
   }
 
   Future<void> _completeTask(String taskId) async {
@@ -337,6 +402,25 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
+  IconData _statusIcon(String status) {
+    switch (status) {
+      case 'completed':
+        return Icons.hourglass_top_outlined;
+
+      case 'approved':
+        return Icons.check_circle_outline;
+
+      case 'cancelled':
+        return Icons.cancel_outlined;
+
+      case 'declined':
+        return Icons.block_outlined;
+
+      default:
+        return Icons.schedule_outlined;
+    }
+  }
+
   BoxDecoration _cardDecoration() {
     return BoxDecoration(
       color: Colors.white,
@@ -412,37 +496,187 @@ class _TasksPageState extends State<TasksPage> {
         120,
       ),
       children: [
-        const Text(
-          'My Tasks',
+        _buildTaskTabs(),
+        const SizedBox(height: 26),
+        if (_showHistory)
+          _buildHistorySection()
+        else
+          _buildActiveSection(),
+      ],
+    );
+  }
+
+  Widget _buildTaskTabs() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFEAE8F2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildTaskTab(
+              label:
+                  'Active (${_activeMyTasks.length + _activeAssignedByMe.length})',
+              isSelected: !_showHistory,
+              onTap: () {
+                setState(() {
+                  _showHistory = false;
+                });
+              },
+            ),
+          ),
+          Expanded(
+            child: _buildTaskTab(
+              label:
+                  'History (${_historyTasks.length})',
+              isSelected: _showHistory,
+              onTap: () {
+                setState(() {
+                  _showHistory = true;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTaskTab({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(
+          milliseconds: 180,
+        ),
+        padding: const EdgeInsets.symmetric(
+          vertical: 12,
+          horizontal: 6,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary
+              : Colors.transparent,
+          borderRadius:
+              BorderRadius.circular(14),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
           style: TextStyle(
+            color: isSelected
+                ? Colors.white
+                : AppColors.subtitle,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActiveSection() {
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Text(
+          'My Tasks (${_activeMyTasks.length})',
+          style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w800,
           ),
         ),
         const SizedBox(height: 14),
-        if (_myTasks.isEmpty)
+        if (_activeMyTasks.isEmpty)
           _buildEmptyCard(
-            'No tasks assigned to you.',
+            'You have no active tasks.',
           )
         else
-          ..._myTasks.map(_buildMyTaskCard),
+          ..._activeMyTasks.map(
+            _buildMyTaskCard,
+          ),
         const SizedBox(height: 30),
-        const Text(
-          'Assigned by me',
-          style: TextStyle(
+        Text(
+          'Assigned by me '
+          '(${_activeAssignedByMe.length})',
+          style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w800,
           ),
         ),
         const SizedBox(height: 14),
-        if (_assignedByMe.isEmpty)
+        if (_activeAssignedByMe.isEmpty)
           _buildEmptyCard(
-            'You have not assigned any tasks.',
+            'You have no active assigned tasks.',
           )
         else
-          ..._assignedByMe.map(
+          ..._activeAssignedByMe.map(
             _buildAssignedTaskCard,
           ),
+      ],
+    );
+  }
+
+  Widget _buildHistorySection() {
+    if (_historyTasks.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(28),
+        decoration: _cardDecoration(),
+        child: const Column(
+          children: [
+            Icon(
+              Icons.history_outlined,
+              size: 44,
+              color: AppColors.primary,
+            ),
+            SizedBox(height: 14),
+            Text(
+              'No task history yet',
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Approved, cancelled and declined tasks will appear here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.subtitle,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Task History (${_historyTasks.length})',
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 14),
+        ..._historyTasks.map(
+          _buildHistoryTaskCard,
+        ),
       ],
     );
   }
@@ -545,13 +779,7 @@ class _TasksPageState extends State<TasksPage> {
                 ),
               )
             else
-              Text(
-                _statusLabel(status),
-                style: TextStyle(
-                  color: _statusColor(status),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              _buildStatusBadge(status),
           ],
         ),
       ),
@@ -621,14 +849,8 @@ class _TasksPageState extends State<TasksPage> {
                       color: AppColors.subtitle,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _statusLabel(status),
-                    style: TextStyle(
-                      color: _statusColor(status),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  const SizedBox(height: 8),
+                  _buildStatusBadge(status),
                 ],
               ),
             ),
@@ -659,6 +881,151 @@ class _TasksPageState extends State<TasksPage> {
                     Icons.chevron_right,
                   ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryTaskCard(
+    Map<String, dynamic> task,
+  ) {
+    final currentUserId =
+        Supabase.instance.client.auth.currentUser?.id;
+
+    final status =
+        task['status']?.toString() ?? 'approved';
+
+    final taskId = task['id']?.toString();
+
+    final personName =
+        task['other_person_name']?.toString() ??
+            'Friend';
+
+    final avatarPath =
+        task['other_person_avatar_path']
+            ?.toString();
+
+    final assignedByCurrentUser =
+        task['assigned_by']?.toString() ==
+            currentUserId;
+
+    final relationshipText = assignedByCurrentUser
+        ? 'Assigned to $personName'
+        : 'Assigned by $personName';
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: taskId == null
+          ? null
+          : () => _openTaskDetails(taskId),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(16),
+        decoration: _cardDecoration(),
+        child: Row(
+          children: [
+            ProfileAvatar(
+              avatarPath: avatarPath,
+              name: personName,
+              radius: 22,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    task['title']?.toString() ??
+                        'Task',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    relationshipText,
+                    style: const TextStyle(
+                      color: AppColors.subtitle,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _formatDueDate(
+                      task['due_at'],
+                    ),
+                    style: const TextStyle(
+                      color: AppColors.subtitle,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildStatusBadge(status),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _formatReward(
+                    task['reward_pence'],
+                  ),
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Icon(
+                  Icons.chevron_right,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(String status) {
+    final colour = _statusColor(status);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 6,
+        ),
+        decoration: BoxDecoration(
+          color: colour.withValues(
+            alpha: 0.12,
+          ),
+          borderRadius:
+              BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _statusIcon(status),
+              size: 15,
+              color: colour,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              _statusLabel(status),
+              style: TextStyle(
+                color: colour,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ],
         ),
