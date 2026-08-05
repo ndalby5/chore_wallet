@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../theme/app_colors.dart';
+import 'edit_task_page.dart';
 
 class TaskDetailPage extends StatefulWidget {
   final String taskId;
@@ -107,6 +108,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         _errorMessage = error
             .toString()
             .replaceFirst('Exception: ', '');
+
         _isLoading = false;
       });
     }
@@ -173,6 +175,25 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
           _isUpdating = false;
         });
       }
+    }
+  }
+
+  Future<void> _openEditTask() async {
+    final taskUpdated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditTaskPage(
+          taskId: widget.taskId,
+        ),
+      ),
+    );
+
+    if (taskUpdated == true && mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      await _loadTask();
     }
   }
 
@@ -499,6 +520,22 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         if (status == 'pending' &&
             _currentUserIsAssigner) ...[
           const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              onPressed:
+                  _isUpdating ? null : _openEditTask,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text(
+                'Edit Task',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             height: 52,
