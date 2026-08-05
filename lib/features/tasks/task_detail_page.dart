@@ -38,7 +38,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
           .select(
             'id, assigned_by, assigned_to, title, description, '
             'reward_pence, due_at, status, created_at, '
-            'completed_at, approved_at',
+            'completed_at, approved_at, cancelled_at',
           )
           .eq('id', widget.taskId)
           .limit(1);
@@ -104,7 +104,9 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage = error.toString().replaceFirst('Exception: ', '');
+        _errorMessage = error
+            .toString()
+            .replaceFirst('Exception: ', '');
         _isLoading = false;
       });
     }
@@ -163,6 +165,91 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Could not update the task.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteTask() async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete task?'),
+          content: const Text(
+            'This task will be cancelled and removed from your active tasks.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('Keep task'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete task'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true || !mounted) {
+      return;
+    }
+
+    await _deleteTask();
+  }
+
+  Future<void> _deleteTask() async {
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      await Supabase.instance.client.rpc(
+        'cancel_task',
+        params: {
+          'task_id': widget.taskId,
+        },
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Task deleted.'),
+        ),
+      );
+
+      Navigator.pop(context, true);
+    } on PostgrestException catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not delete the task.'),
         ),
       );
     } finally {
@@ -267,41 +354,35 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     final currentUserId =
         Supabase.instance.client.auth.currentUser?.id;
 
-    return _task?['assigned_to']?.toString() == currentUserId;
+    return _task?['assigned_to']?.toString() ==
+        currentUserId;
   }
 
   bool get _currentUserIsAssigner {
     final currentUserId =
         Supabase.instance.client.auth.currentUser?.id;
 
-    return _task?['assigned_by']?.toString() == currentUserId;
+    return _task?['assigned_by']?.toString() ==
+        currentUserId;
   }
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: true,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) {
-          return;
-        }
-      },
-      child: Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: AppBar(
-          title: const Text(
-            'Task Details',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-            ),
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text(
+          'Task Details',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
           ),
-          backgroundColor: AppColors.background,
         ),
-        body: SafeArea(
-          child: RefreshIndicator(
-            onRefresh: _loadTask,
-            child: _buildBody(),
-          ),
+        backgroundColor: AppColors.background,
+      ),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _loadTask,
+          child: _buildBody(),
         ),
       ),
     );
@@ -342,13 +423,20 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     }
 
     final task = _task!;
-    final status = task['status']?.toString() ?? 'pending';
+    final status =
+        task['status']?.toString() ?? 'pending';
+
     final description =
         task['description']?.toString().trim() ?? '';
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 40),
+      padding: const EdgeInsets.fromLTRB(
+        20,
+        18,
+        20,
+        50,
+      ),
       children: [
         Text(
           task['title']?.toString() ?? 'Task',
@@ -408,6 +496,31 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         ],
         const SizedBox(height: 30),
         _buildAction(status),
+        if (status == 'pending' &&
+            _currentUserIsAssigner) ...[
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              onPressed:
+                  _isUpdating ? null : _confirmDeleteTask,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text(
+                'Delete Task',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+                side: const BorderSide(
+                  color: AppColors.danger,
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -489,12 +602,14 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   }
 
   Widget _buildAction(String status) {
-    if (status == 'pending' && _currentUserIsAssignee) {
+    if (status == 'pending' &&
+        _currentUserIsAssignee) {
       return SizedBox(
         width: double.infinity,
         height: 54,
         child: FilledButton.icon(
-          onPressed: _isUpdating ? null : _completeTask,
+          onPressed:
+              _isUpdating ? null : _completeTask,
           icon: const Icon(Icons.check),
           label: _isUpdating
               ? const SizedBox(
@@ -516,13 +631,17 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
       );
     }
 
-    if (status == 'completed' && _currentUserIsAssigner) {
+    if (status == 'completed' &&
+        _currentUserIsAssigner) {
       return SizedBox(
         width: double.infinity,
         height: 54,
         child: FilledButton.icon(
-          onPressed: _isUpdating ? null : _approveTask,
-          icon: const Icon(Icons.thumb_up_outlined),
+          onPressed:
+              _isUpdating ? null : _approveTask,
+          icon: const Icon(
+            Icons.thumb_up_outlined,
+          ),
           label: _isUpdating
               ? const SizedBox(
                   width: 22,

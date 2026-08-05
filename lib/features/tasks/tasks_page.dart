@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../theme/app_colors.dart';
+import 'task_detail_page.dart';
 
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key});
@@ -27,6 +28,8 @@ class _TasksPageState extends State<TasksPage> {
     final currentUser = Supabase.instance.client.auth.currentUser;
 
     if (currentUser == null) {
+      if (!mounted) return;
+
       setState(() {
         _errorMessage = 'You need to sign in again.';
         _isLoading = false;
@@ -157,6 +160,21 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
+  Future<void> _openTaskDetails(String taskId) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TaskDetailPage(
+          taskId: taskId,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+
+    await _refreshTasks();
+  }
+
   Future<void> _refreshTasks() async {
     setState(() {
       _isLoading = true;
@@ -171,9 +189,7 @@ class _TasksPageState extends State<TasksPage> {
         ? rewardPence
         : int.tryParse(rewardPence?.toString() ?? '') ?? 0;
 
-    final pounds = pence / 100;
-
-    return '£${pounds.toStringAsFixed(2)}';
+    return '£${(pence / 100).toStringAsFixed(2)}';
   }
 
   String _formatDueDate(dynamic dueAt) {
@@ -221,6 +237,16 @@ class _TasksPageState extends State<TasksPage> {
       default:
         return AppColors.subtitle;
     }
+  }
+
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(
+        color: const Color(0xFFEAE8F2),
+      ),
+    );
   }
 
   @override
@@ -290,9 +316,7 @@ class _TasksPageState extends State<TasksPage> {
         ),
         const SizedBox(height: 14),
         if (_myTasks.isEmpty)
-          _buildEmptyCard(
-            'No tasks assigned to you.',
-          )
+          _buildEmptyCard('No tasks assigned to you.')
         else
           ..._myTasks.map(_buildMyTaskCard),
         const SizedBox(height: 30),
@@ -305,9 +329,7 @@ class _TasksPageState extends State<TasksPage> {
         ),
         const SizedBox(height: 14),
         if (_assignedByMe.isEmpty)
-          _buildEmptyCard(
-            'You have not assigned any tasks.',
-          )
+          _buildEmptyCard('You have not assigned any tasks.')
         else
           ..._assignedByMe.map(_buildAssignedTaskCard),
       ],
@@ -318,64 +340,66 @@ class _TasksPageState extends State<TasksPage> {
     final status = task['status']?.toString() ?? 'pending';
     final taskId = task['id']?.toString();
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFEAE8F2),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  task['title']?.toString() ?? 'Task',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: taskId == null
+          ? null
+          : () => _openTaskDetails(taskId),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(16),
+        decoration: _cardDecoration(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    task['title']?.toString() ?? 'Task',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
+                Text(
+                  _formatReward(task['reward_pence']),
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _formatDueDate(task['due_at']),
+              style: const TextStyle(
+                color: AppColors.subtitle,
               ),
+            ),
+            const SizedBox(height: 14),
+            if (status == 'pending' && taskId != null)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => _completeTask(taskId),
+                  child: const Text('Complete Task'),
+                ),
+              )
+            else
               Text(
-                _formatReward(task['reward_pence']),
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w800,
+                _statusLabel(status),
+                style: TextStyle(
+                  color: _statusColor(status),
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _formatDueDate(task['due_at']),
-            style: const TextStyle(
-              color: AppColors.subtitle,
-            ),
-          ),
-          const SizedBox(height: 14),
-          if (status == 'pending' && taskId != null)
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => _completeTask(taskId),
-                child: const Text('Complete Task'),
-              ),
-            )
-          else
-            Text(
-              _statusLabel(status),
-              style: TextStyle(
-                color: _statusColor(status),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -384,67 +408,69 @@ class _TasksPageState extends State<TasksPage> {
     final status = task['status']?.toString() ?? 'pending';
     final taskId = task['id']?.toString();
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFEAE8F2),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: taskId == null
+          ? null
+          : () => _openTaskDetails(taskId),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(16),
+        decoration: _cardDecoration(),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    task['title']?.toString() ?? 'Task',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _formatDueDate(task['due_at']),
+                    style: const TextStyle(
+                      color: AppColors.subtitle,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _statusLabel(status),
+                    style: TextStyle(
+                      color: _statusColor(status),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  task['title']?.toString() ?? 'Task',
+                  _formatReward(task['reward_pence']),
                   style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  _formatDueDate(task['due_at']),
-                  style: const TextStyle(
-                    color: AppColors.subtitle,
-                  ),
-                ),
+                const SizedBox(height: 8),
+                if (status == 'completed' && taskId != null)
+                  FilledButton(
+                    onPressed: () => _approveTask(taskId),
+                    child: const Text('Approve'),
+                  )
+                else
+                  const Icon(Icons.chevron_right),
               ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                _formatReward(task['reward_pence']),
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (status == 'completed' && taskId != null)
-                FilledButton(
-                  onPressed: () => _approveTask(taskId),
-                  child: const Text('Approve'),
-                )
-              else
-                Text(
-                  _statusLabel(status),
-                  style: TextStyle(
-                    color: _statusColor(status),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -453,13 +479,7 @@ class _TasksPageState extends State<TasksPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFEAE8F2),
-        ),
-      ),
+      decoration: _cardDecoration(),
       child: Text(
         message,
         textAlign: TextAlign.center,
