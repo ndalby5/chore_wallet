@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/balance_summary.dart';
 import '../../services/balance_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/profile_avatar.dart';
 import '../tasks/task_detail_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -20,7 +21,11 @@ class _HomePageState extends State<HomePage> {
   String? _errorMessage;
 
   String _firstName = 'there';
-  BalanceSummary _balanceSummary = const BalanceSummary.empty();
+  String _fullName = '';
+  String? _avatarPath;
+
+  BalanceSummary _balanceSummary =
+      const BalanceSummary.empty();
 
   List<Map<String, dynamic>> _myTasks = [];
   List<Map<String, dynamic>> _awaitingApproval = [];
@@ -33,7 +38,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadHomePage() async {
-    final currentUser = Supabase.instance.client.auth.currentUser;
+    final currentUser =
+        Supabase.instance.client.auth.currentUser;
 
     if (currentUser == null) {
       if (!mounted) return;
@@ -42,27 +48,38 @@ class _HomePageState extends State<HomePage> {
         _errorMessage = 'You need to sign in again.';
         _isLoading = false;
       });
+
       return;
     }
 
     try {
       final profileRows = await Supabase.instance.client
           .from('profiles')
-          .select('name')
+          .select('name, avatar_path')
           .eq('id', currentUser.id)
           .limit(1);
 
-      final profiles =
-          List<Map<String, dynamic>>.from(profileRows);
+      final currentUserProfiles =
+          List<Map<String, dynamic>>.from(
+        profileRows,
+      );
 
       String firstName = 'there';
+      String fullName = '';
+      String? avatarPath;
 
-      if (profiles.isNotEmpty) {
-        final name =
-            profiles.first['name']?.toString().trim() ?? '';
+      if (currentUserProfiles.isNotEmpty) {
+        fullName = currentUserProfiles.first['name']
+                ?.toString()
+                .trim() ??
+            '';
 
-        if (name.isNotEmpty) {
-          firstName = name.split(' ').first;
+        avatarPath = currentUserProfiles
+            .first['avatar_path']
+            ?.toString();
+
+        if (fullName.isNotEmpty) {
+          firstName = fullName.split(' ').first;
         }
       }
 
@@ -84,41 +101,167 @@ class _HomePageState extends State<HomePage> {
       final tasks =
           List<Map<String, dynamic>>.from(taskRows);
 
-      final myTasks = tasks
+      final transactionRows =
+          await Supabase.instance.client
+              .from('transactions')
+              .select(
+                'id, user_id, friend_id, amount_pence, '
+                'type, note, created_at',
+              )
+              .or(
+                'user_id.eq.${currentUser.id},'
+                'friend_id.eq.${currentUser.id}',
+              )
+              .order(
+                'created_at',
+                ascending: false,
+              )
+              .limit(4);
+
+      final transactions =
+          List<Map<String, dynamic>>.from(
+        transactionRows,
+      );
+
+      final relatedProfileIds = <String>{};
+
+      for (final task in tasks) {
+        final assignedById =
+            task['assigned_by']?.toString();
+
+        final assignedToId =
+            task['assigned_to']?.toString();
+
+        if (assignedById != null &&
+            assignedById != currentUser.id) {
+          relatedProfileIds.add(assignedById);
+        }
+
+        if (assignedToId != null &&
+            assignedToId != currentUser.id) {
+          relatedProfileIds.add(assignedToId);
+        }
+      }
+
+      for (final transaction in transactions) {
+        final receiverId =
+            transaction['user_id']?.toString();
+
+        final friendId =
+            transaction['friend_id']?.toString();
+
+        final otherPersonId =
+            receiverId == currentUser.id
+                ? friendId
+                : receiverId;
+
+        if (otherPersonId != null &&
+            otherPersonId != currentUser.id) {
+          relatedProfileIds.add(otherPersonId);
+        }
+      }
+
+      List<Map<String, dynamic>> relatedProfiles = [];
+
+      if (relatedProfileIds.isNotEmpty) {
+        final relatedProfileRows =
+            await Supabase.instance.client
+                .from('profiles')
+                .select(
+                  'id, name, avatar_path',
+                )
+                .inFilter(
+                  'id',
+                  relatedProfileIds.toList(),
+                );
+
+        relatedProfiles =
+            List<Map<String, dynamic>>.from(
+          relatedProfileRows,
+        );
+      }
+
+      final profilesById = {
+        for (final profile in relatedProfiles)
+          profile['id']?.toString() ?? '': profile,
+      };
+
+      final enrichedTasks = tasks.map((task) {
+        final assignedById =
+            task['assigned_by']?.toString();
+
+        final assignedToId =
+            task['assigned_to']?.toString();
+
+        final otherPersonId =
+            assignedToId == currentUser.id
+                ? assignedById
+                : assignedToId;
+
+        final otherProfile =
+            profilesById[otherPersonId];
+
+        return <String, dynamic>{
+          ...task,
+          'other_person_id': otherPersonId,
+          'other_person_name':
+              otherProfile?['name']?.toString() ??
+                  'Friend',
+          'other_person_avatar_path':
+              otherProfile?['avatar_path']
+                  ?.toString(),
+        };
+      }).toList();
+
+      final enrichedTransactions =
+          transactions.map((transaction) {
+        final receiverId =
+            transaction['user_id']?.toString();
+
+        final friendId =
+            transaction['friend_id']?.toString();
+
+        final otherPersonId =
+            receiverId == currentUser.id
+                ? friendId
+                : receiverId;
+
+        final otherProfile =
+            profilesById[otherPersonId];
+
+        return <String, dynamic>{
+          ...transaction,
+          'other_person_id': otherPersonId,
+          'other_person_name':
+              otherProfile?['name']?.toString() ??
+                  'Friend',
+          'other_person_avatar_path':
+              otherProfile?['avatar_path']
+                  ?.toString(),
+        };
+      }).toList();
+
+      final myTasks = enrichedTasks
           .where(
             (task) =>
                 task['assigned_to']?.toString() ==
                     currentUser.id &&
-                task['status']?.toString() == 'pending',
+                task['status']?.toString() ==
+                    'pending',
           )
           .take(3)
           .toList();
 
-      final awaitingApproval = tasks
+      final awaitingApproval = enrichedTasks
           .where(
             (task) =>
                 task['assigned_by']?.toString() ==
                     currentUser.id &&
-                task['status']?.toString() == 'completed',
+                task['status']?.toString() ==
+                    'completed',
           )
           .take(3)
           .toList();
-
-      final transactionRows = await Supabase.instance.client
-          .from('transactions')
-          .select(
-            'id, user_id, friend_id, amount_pence, '
-            'type, note, created_at',
-          )
-          .or(
-            'user_id.eq.${currentUser.id},'
-            'friend_id.eq.${currentUser.id}',
-          )
-          .order(
-            'created_at',
-            ascending: false,
-          )
-          .limit(4);
 
       final balanceSummary =
           await _balanceService.getBalanceSummary();
@@ -127,11 +270,13 @@ class _HomePageState extends State<HomePage> {
 
       setState(() {
         _firstName = firstName;
+        _fullName = fullName;
+        _avatarPath = avatarPath;
+
         _balanceSummary = balanceSummary;
         _myTasks = myTasks;
         _awaitingApproval = awaitingApproval;
-        _recentActivity =
-            List<Map<String, dynamic>>.from(transactionRows);
+        _recentActivity = enrichedTransactions;
 
         _errorMessage = null;
         _isLoading = false;
@@ -154,7 +299,8 @@ class _HomePageState extends State<HomePage> {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage = 'Could not load your dashboard.';
+        _errorMessage =
+            'Could not load your dashboard.';
         _isLoading = false;
       });
     }
@@ -169,7 +315,9 @@ class _HomePageState extends State<HomePage> {
     await _loadHomePage();
   }
 
-  Future<void> _openTaskDetails(String taskId) async {
+  Future<void> _openTaskDetails(
+    String taskId,
+  ) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -203,7 +351,10 @@ class _HomePageState extends State<HomePage> {
       return value;
     }
 
-    return int.tryParse(value?.toString() ?? '') ?? 0;
+    return int.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0;
   }
 
   String _formatMoney(int pence) {
@@ -227,7 +378,9 @@ class _HomePageState extends State<HomePage> {
       return 'No due date';
     }
 
-    final date = DateTime.tryParse(value.toString());
+    final date = DateTime.tryParse(
+      value.toString(),
+    );
 
     if (date == null) {
       return 'No due date';
@@ -248,7 +401,8 @@ class _HomePageState extends State<HomePage> {
       localDate.day,
     );
 
-    final difference = dueDay.difference(today).inDays;
+    final difference =
+        dueDay.difference(today).inDays;
 
     if (difference == 0) {
       return 'Due today';
@@ -262,8 +416,11 @@ class _HomePageState extends State<HomePage> {
       return 'Overdue';
     }
 
-    final day = localDate.day.toString().padLeft(2, '0');
-    final month = localDate.month.toString().padLeft(2, '0');
+    final day =
+        localDate.day.toString().padLeft(2, '0');
+
+    final month =
+        localDate.month.toString().padLeft(2, '0');
 
     return 'Due $day/$month/${localDate.year}';
   }
@@ -273,15 +430,45 @@ class _HomePageState extends State<HomePage> {
       return '';
     }
 
-    final date = DateTime.tryParse(value.toString());
+    final date = DateTime.tryParse(
+      value.toString(),
+    );
 
     if (date == null) {
       return '';
     }
 
     final localDate = date.toLocal();
-    final day = localDate.day.toString().padLeft(2, '0');
-    final month = localDate.month.toString().padLeft(2, '0');
+    final now = DateTime.now();
+
+    final today = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    );
+
+    final activityDay = DateTime(
+      localDate.year,
+      localDate.month,
+      localDate.day,
+    );
+
+    final difference =
+        today.difference(activityDay).inDays;
+
+    if (difference == 0) {
+      return 'Today';
+    }
+
+    if (difference == 1) {
+      return 'Yesterday';
+    }
+
+    final day =
+        localDate.day.toString().padLeft(2, '0');
+
+    final month =
+        localDate.month.toString().padLeft(2, '0');
 
     return '$day/$month/${localDate.year}';
   }
@@ -303,7 +490,9 @@ class _HomePageState extends State<HomePage> {
       transaction['amount_pence'],
     );
 
-    if (_activityBenefitsCurrentUser(transaction)) {
+    if (_activityBenefitsCurrentUser(
+      transaction,
+    )) {
       return '+${_formatMoney(pence)}';
     }
 
@@ -313,7 +502,9 @@ class _HomePageState extends State<HomePage> {
   Color _activityColour(
     Map<String, dynamic> transaction,
   ) {
-    if (_activityBenefitsCurrentUser(transaction)) {
+    if (_activityBenefitsCurrentUser(
+      transaction,
+    )) {
       return AppColors.success;
     }
 
@@ -323,7 +514,8 @@ class _HomePageState extends State<HomePage> {
   String _activityTitle(
     Map<String, dynamic> transaction,
   ) {
-    final note = transaction['note']?.toString().trim();
+    final note =
+        transaction['note']?.toString().trim();
 
     if (note != null && note.isNotEmpty) {
       return note;
@@ -332,24 +524,32 @@ class _HomePageState extends State<HomePage> {
     switch (transaction['type']?.toString()) {
       case 'payment':
         return 'Payment';
+
       case 'adjustment':
         return 'Balance adjustment';
+
       default:
         return 'Task reward';
     }
   }
 
-  IconData _activityIcon(
+  String _activitySubtitle(
     Map<String, dynamic> transaction,
   ) {
-    switch (transaction['type']?.toString()) {
-      case 'payment':
-        return Icons.payments_outlined;
-      case 'adjustment':
-        return Icons.tune_outlined;
-      default:
-        return Icons.task_alt;
+    final personName =
+        transaction['other_person_name']
+                ?.toString() ??
+            'Friend';
+
+    final date = _formatActivityDate(
+      transaction['created_at'],
+    );
+
+    if (date.isEmpty) {
+      return personName;
     }
+
+    return '$personName · $date';
   }
 
   @override
@@ -374,7 +574,8 @@ class _HomePageState extends State<HomePage> {
 
     if (_errorMessage != null) {
       return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics:
+            const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 100),
@@ -400,7 +601,8 @@ class _HomePageState extends State<HomePage> {
     }
 
     return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
+      physics:
+          const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(
         20,
         22,
@@ -408,20 +610,40 @@ class _HomePageState extends State<HomePage> {
         120,
       ),
       children: [
-        Text(
-          '${_greeting()}, $_firstName 👋',
-          style: const TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'Here’s what’s happening today.',
-          style: TextStyle(
-            fontSize: 16,
-            color: AppColors.subtitle,
-          ),
+        Row(
+          crossAxisAlignment:
+              CrossAxisAlignment.center,
+          children: [
+            ProfileAvatar(
+              avatarPath: _avatarPath,
+              name: _fullName,
+              radius: 28,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_greeting()}, $_firstName 👋',
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Here’s what’s happening today.',
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: AppColors.subtitle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 24),
         _buildBalanceCard(),
@@ -470,7 +692,8 @@ class _HomePageState extends State<HomePage> {
         borderRadius: BorderRadius.circular(22),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
         children: [
           const Text(
             'Overall Balance',
@@ -555,6 +778,14 @@ class _HomePageState extends State<HomePage> {
   ) {
     final taskId = task['id']?.toString();
 
+    final personName =
+        task['other_person_name']?.toString() ??
+            'Friend';
+
+    final avatarPath =
+        task['other_person_avatar_path']
+            ?.toString();
+
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: taskId == null
@@ -566,27 +797,37 @@ class _HomePageState extends State<HomePage> {
         decoration: _cardDecoration(),
         child: Row(
           children: [
-            const CircleAvatar(
-              backgroundColor: Color(0xFFF0ECFF),
-              child: Icon(
-                Icons.task_alt_outlined,
-                color: AppColors.primary,
-              ),
+            ProfileAvatar(
+              avatarPath: avatarPath,
+              name: personName,
+              radius: 22,
             ),
             const SizedBox(width: 13),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
-                    task['title']?.toString() ?? 'Task',
+                    task['title']?.toString() ??
+                        'Task',
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Assigned by $personName',
+                    style: const TextStyle(
+                      color: AppColors.subtitle,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 5),
                   Text(
-                    _formatDueDate(task['due_at']),
+                    _formatDueDate(
+                      task['due_at'],
+                    ),
                     style: const TextStyle(
                       color: AppColors.subtitle,
                     ),
@@ -596,7 +837,9 @@ class _HomePageState extends State<HomePage> {
             ),
             Text(
               _formatMoney(
-                _readPence(task['reward_pence']),
+                _readPence(
+                  task['reward_pence'],
+                ),
               ),
               style: const TextStyle(
                 color: AppColors.primary,
@@ -616,6 +859,14 @@ class _HomePageState extends State<HomePage> {
   ) {
     final taskId = task['id']?.toString();
 
+    final personName =
+        task['other_person_name']?.toString() ??
+            'Friend';
+
+    final avatarPath =
+        task['other_person_avatar_path']
+            ?.toString();
+
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: taskId == null
@@ -627,22 +878,30 @@ class _HomePageState extends State<HomePage> {
         decoration: _cardDecoration(),
         child: Row(
           children: [
-            const CircleAvatar(
-              backgroundColor: Color(0xFFFFF3DD),
-              child: Icon(
-                Icons.hourglass_top_outlined,
-                color: AppColors.warning,
-              ),
+            ProfileAvatar(
+              avatarPath: avatarPath,
+              name: personName,
+              radius: 22,
             ),
             const SizedBox(width: 13),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
-                    task['title']?.toString() ?? 'Task',
+                    task['title']?.toString() ??
+                        'Task',
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Assigned to $personName',
+                    style: const TextStyle(
+                      color: AppColors.subtitle,
+                      fontSize: 13,
                     ),
                   ),
                   const SizedBox(height: 5),
@@ -658,7 +917,9 @@ class _HomePageState extends State<HomePage> {
             ),
             Text(
               _formatMoney(
-                _readPence(task['reward_pence']),
+                _readPence(
+                  task['reward_pence'],
+                ),
               ),
               style: const TextStyle(
                 color: AppColors.primary,
@@ -683,6 +944,16 @@ class _HomePageState extends State<HomePage> {
             final transaction =
                 _recentActivity[index];
 
+            final personName =
+                transaction['other_person_name']
+                        ?.toString() ??
+                    'Friend';
+
+            final avatarPath =
+                transaction[
+                        'other_person_avatar_path']
+                    ?.toString();
+
             return Column(
               children: [
                 ListTile(
@@ -691,15 +962,10 @@ class _HomePageState extends State<HomePage> {
                     horizontal: 16,
                     vertical: 5,
                   ),
-                  leading: CircleAvatar(
-                    backgroundColor:
-                        AppColors.primary.withValues(
-                      alpha: 0.12,
-                    ),
-                    child: Icon(
-                      _activityIcon(transaction),
-                      color: AppColors.primary,
-                    ),
+                  leading: ProfileAvatar(
+                    avatarPath: avatarPath,
+                    name: personName,
+                    radius: 22,
                   ),
                   title: Text(
                     _activityTitle(transaction),
@@ -708,9 +974,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   subtitle: Text(
-                    _formatActivityDate(
-                      transaction['created_at'],
-                    ),
+                    _activitySubtitle(transaction),
                     style: const TextStyle(
                       color: AppColors.subtitle,
                     ),
@@ -718,12 +982,15 @@ class _HomePageState extends State<HomePage> {
                   trailing: Text(
                     _activityAmount(transaction),
                     style: TextStyle(
-                      color: _activityColour(transaction),
+                      color: _activityColour(
+                        transaction,
+                      ),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
-                if (index < _recentActivity.length - 1)
+                if (index <
+                    _recentActivity.length - 1)
                   const Divider(
                     height: 1,
                     indent: 72,

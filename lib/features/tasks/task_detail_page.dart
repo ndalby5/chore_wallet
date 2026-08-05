@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../theme/app_colors.dart';
+import '../../widgets/profile_avatar.dart';
 import 'edit_task_page.dart';
 
 class TaskDetailPage extends StatefulWidget {
@@ -25,6 +26,9 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
 
   String _assignedByName = 'Unknown';
   String _assignedToName = 'Unknown';
+
+  String? _assignedByAvatarPath;
+  String? _assignedToAvatarPath;
 
   @override
   void initState() {
@@ -65,23 +69,29 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
           : List<Map<String, dynamic>>.from(
               await Supabase.instance.client
                   .from('profiles')
-                  .select('id, name')
+                  .select('id, name, avatar_path')
                   .inFilter('id', profileIds),
             );
 
       String assignedByName = 'Unknown';
       String assignedToName = 'Unknown';
 
+      String? assignedByAvatarPath;
+      String? assignedToAvatarPath;
+
       for (final profile in profileRows) {
         final profileId = profile['id']?.toString();
         final name = profile['name']?.toString() ?? 'Unknown';
+        final avatarPath = profile['avatar_path']?.toString();
 
         if (profileId == assignedById) {
           assignedByName = name;
+          assignedByAvatarPath = avatarPath;
         }
 
         if (profileId == assignedToId) {
           assignedToName = name;
+          assignedToAvatarPath = avatarPath;
         }
       }
 
@@ -89,8 +99,13 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
 
       setState(() {
         _task = task;
+
         _assignedByName = assignedByName;
         _assignedToName = assignedToName;
+
+        _assignedByAvatarPath = assignedByAvatarPath;
+        _assignedToAvatarPath = assignedToAvatarPath;
+
         _errorMessage = null;
         _isLoading = false;
       });
@@ -346,12 +361,16 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     switch (status) {
       case 'completed':
         return 'Awaiting approval';
+
       case 'approved':
         return 'Approved';
+
       case 'declined':
         return 'Declined';
+
       case 'cancelled':
         return 'Cancelled';
+
       default:
         return 'Pending';
     }
@@ -361,11 +380,14 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     switch (status) {
       case 'completed':
         return AppColors.warning;
+
       case 'approved':
         return AppColors.success;
+
       case 'declined':
       case 'cancelled':
         return AppColors.danger;
+
       default:
         return AppColors.subtitle;
     }
@@ -444,6 +466,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     }
 
     final task = _task!;
+
     final status =
         task['status']?.toString() ?? 'pending';
 
@@ -469,28 +492,32 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         const SizedBox(height: 18),
         _buildStatusCard(status),
         const SizedBox(height: 18),
-        _buildInformationCard(
-          icon: Icons.person_outline,
+        _buildPersonCard(
           label: 'Assigned by',
-          value: _assignedByName,
+          name: _assignedByName,
+          avatarPath: _assignedByAvatarPath,
         ),
         const SizedBox(height: 12),
-        _buildInformationCard(
-          icon: Icons.person_pin_outlined,
+        _buildPersonCard(
           label: 'Assigned to',
-          value: _assignedToName,
+          name: _assignedToName,
+          avatarPath: _assignedToAvatarPath,
         ),
         const SizedBox(height: 12),
         _buildInformationCard(
           icon: Icons.payments_outlined,
           label: 'Reward',
-          value: _formatMoney(task['reward_pence']),
+          value: _formatMoney(
+            task['reward_pence'],
+          ),
         ),
         const SizedBox(height: 12),
         _buildInformationCard(
           icon: Icons.calendar_today_outlined,
           label: 'Due',
-          value: _formatDueDate(task['due_at']),
+          value: _formatDueDate(
+            task['due_at'],
+          ),
         ),
         if (description.isNotEmpty) ...[
           const SizedBox(height: 24),
@@ -540,9 +567,12 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
             width: double.infinity,
             height: 52,
             child: OutlinedButton.icon(
-              onPressed:
-                  _isUpdating ? null : _confirmDeleteTask,
-              icon: const Icon(Icons.delete_outline),
+              onPressed: _isUpdating
+                  ? null
+                  : _confirmDeleteTask,
+              icon: const Icon(
+                Icons.delete_outline,
+              ),
               label: const Text(
                 'Delete Task',
                 style: TextStyle(
@@ -595,6 +625,51 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     );
   }
 
+  Widget _buildPersonCard({
+    required String label,
+    required String name,
+    required String? avatarPath,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(17),
+      decoration: _cardDecoration(),
+      child: Row(
+        children: [
+          ProfileAvatar(
+            avatarPath: avatarPath,
+            name: name,
+            radius: 22,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: AppColors.subtitle,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInformationCard({
     required IconData icon,
     required String label,
@@ -613,7 +688,8 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
           const SizedBox(width: 14),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
               children: [
                 Text(
                   label,

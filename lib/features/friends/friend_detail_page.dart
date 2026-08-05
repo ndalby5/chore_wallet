@@ -3,25 +3,31 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/balance_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/profile_avatar.dart';
 import '../tasks/add_task_page.dart';
 import 'record_payment_page.dart';
 
 class FriendDetailPage extends StatefulWidget {
   final String friendId;
   final String friendName;
+  final String? friendAvatarPath;
 
   const FriendDetailPage({
     super.key,
     required this.friendId,
     required this.friendName,
+    this.friendAvatarPath,
   });
 
   @override
-  State<FriendDetailPage> createState() => _FriendDetailPageState();
+  State<FriendDetailPage> createState() =>
+      _FriendDetailPageState();
 }
 
-class _FriendDetailPageState extends State<FriendDetailPage> {
-  final BalanceService _balanceService = BalanceService();
+class _FriendDetailPageState
+    extends State<FriendDetailPage> {
+  final BalanceService _balanceService =
+      BalanceService();
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -36,46 +42,53 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
   }
 
   Future<void> _loadPage() async {
-    final currentUser = Supabase.instance.client.auth.currentUser;
+    final currentUser =
+        Supabase.instance.client.auth.currentUser;
 
     if (currentUser == null) {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage = 'You need to sign in again.';
+        _errorMessage =
+            'You need to sign in again.';
         _isLoading = false;
       });
       return;
     }
 
     try {
-      final balance = await _balanceService.getBalanceWithFriend(
+      final balance =
+          await _balanceService
+              .getBalanceWithFriend(
         widget.friendId,
       );
 
-      final transactionRows = await Supabase.instance.client
-          .from('transactions')
-          .select(
-            'id, user_id, friend_id, task_id, '
-            'amount_pence, type, note, created_at',
-          )
-          .or(
-            'and(user_id.eq.${currentUser.id},'
-            'friend_id.eq.${widget.friendId}),'
-            'and(user_id.eq.${widget.friendId},'
-            'friend_id.eq.${currentUser.id})',
-          )
-          .order(
-            'created_at',
-            ascending: false,
-          );
+      final transactionRows =
+          await Supabase.instance.client
+              .from('transactions')
+              .select(
+                'id, user_id, friend_id, task_id, '
+                'amount_pence, type, note, created_at',
+              )
+              .or(
+                'and(user_id.eq.${currentUser.id},'
+                'friend_id.eq.${widget.friendId}),'
+                'and(user_id.eq.${widget.friendId},'
+                'friend_id.eq.${currentUser.id})',
+              )
+              .order(
+                'created_at',
+                ascending: false,
+              );
 
       if (!mounted) return;
 
       setState(() {
         _balancePence = balance;
         _transactions =
-            List<Map<String, dynamic>>.from(transactionRows);
+            List<Map<String, dynamic>>.from(
+          transactionRows,
+        );
 
         _errorMessage = null;
         _isLoading = false;
@@ -98,7 +111,8 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage = 'Could not load this friend.';
+        _errorMessage =
+            'Could not load this friend.';
         _isLoading = false;
       });
     }
@@ -114,12 +128,14 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
   }
 
   Future<void> _openAddTask() async {
-    final taskCreated = await Navigator.push<bool>(
+    final taskCreated =
+        await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => AddTaskPage(
           preselectedFriendId: widget.friendId,
-          preselectedFriendName: widget.friendName,
+          preselectedFriendName:
+              widget.friendName,
         ),
       ),
     );
@@ -138,7 +154,8 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
   }
 
   Future<void> _openRecordPayment() async {
-    final paymentRecorded = await Navigator.push<bool>(
+    final paymentRecorded =
+        await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => RecordPaymentPage(
@@ -164,7 +181,10 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
       return value;
     }
 
-    return int.tryParse(value?.toString() ?? '') ?? 0;
+    return int.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0;
   }
 
   String _formatMoney(int pence) {
@@ -200,7 +220,8 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
       return '';
     }
 
-    final date = DateTime.tryParse(value.toString());
+    final date =
+        DateTime.tryParse(value.toString());
 
     if (date == null) {
       return '';
@@ -208,8 +229,13 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
 
     final localDate = date.toLocal();
 
-    final day = localDate.day.toString().padLeft(2, '0');
-    final month = localDate.month.toString().padLeft(2, '0');
+    final day = localDate.day
+        .toString()
+        .padLeft(2, '0');
+
+    final month = localDate.month
+        .toString()
+        .padLeft(2, '0');
 
     return '$day/$month/${localDate.year}';
   }
@@ -220,7 +246,8 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
     final currentUserId =
         Supabase.instance.client.auth.currentUser?.id;
 
-    return transaction['user_id']?.toString() == currentUserId;
+    return transaction['user_id']?.toString() ==
+        currentUserId;
   }
 
   String _transactionAmount(
@@ -230,7 +257,9 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
       transaction['amount_pence'],
     );
 
-    if (_isMoneyOwedToCurrentUser(transaction)) {
+    if (_isMoneyOwedToCurrentUser(
+      transaction,
+    )) {
       return '+${_formatMoney(amountPence)}';
     }
 
@@ -240,7 +269,9 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
   Color _transactionAmountColor(
     Map<String, dynamic> transaction,
   ) {
-    if (_isMoneyOwedToCurrentUser(transaction)) {
+    if (_isMoneyOwedToCurrentUser(
+      transaction,
+    )) {
       return AppColors.success;
     }
 
@@ -250,7 +281,8 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
   IconData _transactionIcon(
     Map<String, dynamic> transaction,
   ) {
-    final type = transaction['type']?.toString();
+    final type =
+        transaction['type']?.toString();
 
     switch (type) {
       case 'payment':
@@ -268,13 +300,17 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
   String _transactionTitle(
     Map<String, dynamic> transaction,
   ) {
-    final note = transaction['note']?.toString().trim();
+    final note =
+        transaction['note']
+            ?.toString()
+            .trim();
 
     if (note != null && note.isNotEmpty) {
       return note;
     }
 
-    final type = transaction['type']?.toString();
+    final type =
+        transaction['type']?.toString();
 
     switch (type) {
       case 'payment':
@@ -306,7 +342,8 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
         child: RefreshIndicator(
           onRefresh: _refreshPage,
           child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
+            physics:
+                const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
               20,
               16,
@@ -316,21 +353,26 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
             children: [
               if (_isLoading)
                 const Padding(
-                  padding: EdgeInsets.only(top: 100),
+                  padding:
+                      EdgeInsets.only(top: 100),
                   child: Center(
-                    child: CircularProgressIndicator(),
+                    child:
+                        CircularProgressIndicator(),
                   ),
                 )
               else if (_errorMessage != null)
                 _buildError()
               else ...[
+                _buildFriendHeader(),
+                const SizedBox(height: 20),
                 _buildBalanceCard(),
                 const SizedBox(height: 30),
                 const Text(
                   'Activity',
                   style: TextStyle(
                     fontSize: 22,
-                    fontWeight: FontWeight.w800,
+                    fontWeight:
+                        FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -345,18 +387,23 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
       ),
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment:
+            CrossAxisAlignment.end,
         children: [
           FloatingActionButton.extended(
             heroTag: 'record_payment',
             onPressed: _openRecordPayment,
             backgroundColor: Colors.white,
-            foregroundColor: AppColors.primary,
-            icon: const Icon(Icons.payments_outlined),
+            foregroundColor:
+                AppColors.primary,
+            icon: const Icon(
+              Icons.payments_outlined,
+            ),
             label: const Text(
               'Record Payment',
               style: TextStyle(
-                fontWeight: FontWeight.w700,
+                fontWeight:
+                    FontWeight.w700,
               ),
             ),
           ),
@@ -364,13 +411,15 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
           FloatingActionButton.extended(
             heroTag: 'add_task',
             onPressed: _openAddTask,
-            backgroundColor: AppColors.primary,
+            backgroundColor:
+                AppColors.primary,
             foregroundColor: Colors.white,
             icon: const Icon(Icons.add),
             label: const Text(
               'Add Task',
               style: TextStyle(
-                fontWeight: FontWeight.w700,
+                fontWeight:
+                    FontWeight.w700,
               ),
             ),
           ),
@@ -381,13 +430,34 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
     );
   }
 
+  Widget _buildFriendHeader() {
+    return Column(
+      children: [
+        ProfileAvatar(
+          avatarPath: widget.friendAvatarPath,
+          name: widget.friendName,
+          radius: 46,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          widget.friendName,
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildBalanceCard() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         color: AppColors.primary,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius:
+            BorderRadius.circular(24),
       ),
       child: Column(
         children: [
@@ -417,7 +487,8 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius:
+            BorderRadius.circular(20),
         border: Border.all(
           color: const Color(0xFFEAE8F2),
         ),
@@ -426,50 +497,65 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
         children: List.generate(
           _transactions.length,
           (index) {
-            final transaction = _transactions[index];
+            final transaction =
+                _transactions[index];
 
             return Column(
               children: [
                 ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
+                  contentPadding:
+                      const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 7,
                   ),
                   leading: CircleAvatar(
                     backgroundColor:
-                        AppColors.primary.withValues(
+                        AppColors.primary
+                            .withValues(
                       alpha: 0.12,
                     ),
                     child: Icon(
-                      _transactionIcon(transaction),
+                      _transactionIcon(
+                        transaction,
+                      ),
                       color: AppColors.primary,
                     ),
                   ),
                   title: Text(
-                    _transactionTitle(transaction),
+                    _transactionTitle(
+                      transaction,
+                    ),
                     style: const TextStyle(
-                      fontWeight: FontWeight.w700,
+                      fontWeight:
+                          FontWeight.w700,
                     ),
                   ),
                   subtitle: Text(
                     _formatDate(
-                      transaction['created_at'],
+                      transaction[
+                          'created_at'],
                     ),
                     style: const TextStyle(
-                      color: AppColors.subtitle,
+                      color:
+                          AppColors.subtitle,
                     ),
                   ),
                   trailing: Text(
-                    _transactionAmount(transaction),
+                    _transactionAmount(
+                      transaction,
+                    ),
                     style: TextStyle(
-                      color: _transactionAmountColor(
+                      color:
+                          _transactionAmountColor(
                         transaction,
                       ),
-                      fontWeight: FontWeight.w800,
+                      fontWeight:
+                          FontWeight.w800,
                     ),
                   ),
                 ),
-                if (index < _transactions.length - 1)
+                if (index <
+                    _transactions.length - 1)
                   const Divider(
                     height: 1,
                     indent: 72,
@@ -488,7 +574,8 @@ class _FriendDetailPageState extends State<FriendDetailPage> {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius:
+            BorderRadius.circular(20),
         border: Border.all(
           color: const Color(0xFFEAE8F2),
         ),

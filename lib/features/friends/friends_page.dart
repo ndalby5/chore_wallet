@@ -5,7 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/balance_summary.dart';
 import '../../services/balance_service.dart';
 import '../../theme/app_colors.dart';
-import 'friend_detail_page.dart'; 
+import '../../widgets/profile_avatar.dart';
+import 'friend_detail_page.dart';
 
 class FriendsPage extends StatefulWidget {
   const FriendsPage({super.key});
@@ -25,14 +26,18 @@ class _FriendsPageState extends State<FriendsPage> {
   String? _errorMessage;
 
   List<Map<String, dynamic>> _friends = [];
-  BalanceSummary _balanceSummary = const BalanceSummary.empty();
+
+  BalanceSummary _balanceSummary =
+      const BalanceSummary.empty();
 
   @override
   void initState() {
     super.initState();
 
     _searchController.addListener(() {
-      setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     });
 
     _loadPage();
@@ -45,27 +50,36 @@ class _FriendsPageState extends State<FriendsPage> {
   }
 
   Future<void> _loadPage() async {
-    final currentUser = Supabase.instance.client.auth.currentUser;
+    final currentUser =
+        Supabase.instance.client.auth.currentUser;
 
     if (currentUser == null) {
+      if (!mounted) return;
+
       setState(() {
         _errorMessage = 'You need to sign in again.';
         _isLoading = false;
       });
+
       return;
     }
 
     try {
-      final friendshipRows = await Supabase.instance.client
-          .from('friendships')
-          .select('user_one_id, user_two_id')
-          .or(
-            'user_one_id.eq.${currentUser.id},'
-            'user_two_id.eq.${currentUser.id}',
-          );
+      final friendshipRows =
+          await Supabase.instance.client
+              .from('friendships')
+              .select(
+                'user_one_id, user_two_id',
+              )
+              .or(
+                'user_one_id.eq.${currentUser.id},'
+                'user_two_id.eq.${currentUser.id}',
+              );
 
       final friendships =
-          List<Map<String, dynamic>>.from(friendshipRows);
+          List<Map<String, dynamic>>.from(
+        friendshipRows,
+      );
 
       final friendIds = friendships
           .map((friendship) {
@@ -85,13 +99,20 @@ class _FriendsPageState extends State<FriendsPage> {
       List<Map<String, dynamic>> profiles = [];
 
       if (friendIds.isNotEmpty) {
-        final profileRows = await Supabase.instance.client
-            .from('profiles')
-            .select('id, name')
-            .inFilter('id', friendIds)
-            .order('name');
+        final profileRows =
+            await Supabase.instance.client
+                .from('profiles')
+                .select(
+                  'id, name, avatar_path',
+                )
+                .inFilter(
+                  'id',
+                  friendIds,
+                )
+                .order('name');
 
-        profiles = List<Map<String, dynamic>>.from(
+        profiles =
+            List<Map<String, dynamic>>.from(
           profileRows,
         );
       }
@@ -100,16 +121,20 @@ class _FriendsPageState extends State<FriendsPage> {
           await _balanceService.getBalanceSummary();
 
       final balancesByFriend = {
-        for (final balance in balanceSummary.friendBalances)
+        for (final balance
+            in balanceSummary.friendBalances)
           balance.friendId: balance.balancePence,
       };
 
-      final friendsWithBalances = profiles.map((profile) {
-        final friendId = profile['id']?.toString() ?? '';
+      final friendsWithBalances =
+          profiles.map((profile) {
+        final friendId =
+            profile['id']?.toString() ?? '';
 
         return <String, dynamic>{
           ...profile,
-          'balance_pence': balancesByFriend[friendId] ?? 0,
+          'balance_pence':
+              balancesByFriend[friendId] ?? 0,
         };
       }).toList();
 
@@ -139,7 +164,8 @@ class _FriendsPageState extends State<FriendsPage> {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage = 'Could not load your friends.';
+        _errorMessage =
+            'Could not load your friends.';
         _isLoading = false;
       });
     }
@@ -160,7 +186,8 @@ class _FriendsPageState extends State<FriendsPage> {
     });
 
     try {
-      final response = await Supabase.instance.client.rpc(
+      final response =
+          await Supabase.instance.client.rpc(
         'create_friend_invite',
       );
 
@@ -171,7 +198,9 @@ class _FriendsPageState extends State<FriendsPage> {
       final token = invite['token']?.toString();
 
       if (token == null || token.isEmpty) {
-        throw Exception('No invite token was returned.');
+        throw Exception(
+          'No invite token was returned.',
+        );
       }
 
       final inviteLink =
@@ -212,8 +241,10 @@ class _FriendsPageState extends State<FriendsPage> {
     }
   }
 
-  List<Map<String, dynamic>> get _filteredFriends {
-    final search = _searchController.text.trim().toLowerCase();
+  List<Map<String, dynamic>>
+      get _filteredFriends {
+    final search =
+        _searchController.text.trim().toLowerCase();
 
     if (search.isEmpty) {
       return _friends;
@@ -221,27 +252,40 @@ class _FriendsPageState extends State<FriendsPage> {
 
     return _friends.where((friend) {
       final name =
-          friend['name']?.toString().toLowerCase() ?? '';
+          friend['name']?.toString().toLowerCase() ??
+              '';
 
       return name.contains(search);
     }).toList();
   }
 
-  List<Map<String, dynamic>> get _friendsWhoOweYou {
+  List<Map<String, dynamic>>
+      get _friendsWhoOweYou {
     return _filteredFriends.where((friend) {
-      return _readPence(friend['balance_pence']) > 0;
+      return _readPence(
+            friend['balance_pence'],
+          ) >
+          0;
     }).toList();
   }
 
-  List<Map<String, dynamic>> get _friendsYouOwe {
+  List<Map<String, dynamic>>
+      get _friendsYouOwe {
     return _filteredFriends.where((friend) {
-      return _readPence(friend['balance_pence']) < 0;
+      return _readPence(
+            friend['balance_pence'],
+          ) <
+          0;
     }).toList();
   }
 
-  List<Map<String, dynamic>> get _settledFriends {
+  List<Map<String, dynamic>>
+      get _settledFriends {
     return _filteredFriends.where((friend) {
-      return _readPence(friend['balance_pence']) == 0;
+      return _readPence(
+            friend['balance_pence'],
+          ) ==
+          0;
     }).toList();
   }
 
@@ -250,7 +294,10 @@ class _FriendsPageState extends State<FriendsPage> {
       return value;
     }
 
-    return int.tryParse(value?.toString() ?? '') ?? 0;
+    return int.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0;
   }
 
   String _formatMoney(int pence) {
@@ -269,16 +316,6 @@ class _FriendsPageState extends State<FriendsPage> {
     return '£0.00';
   }
 
-  String _friendInitial(String name) {
-    final trimmedName = name.trim();
-
-    if (trimmedName.isEmpty) {
-      return '?';
-    }
-
-    return trimmedName.substring(0, 1).toUpperCase();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -294,13 +331,15 @@ class _FriendsPageState extends State<FriendsPage> {
         actions: [
           IconButton(
             tooltip: 'Add friend',
-            onPressed:
-                _isCreatingInvite ? null : _shareInvite,
+            onPressed: _isCreatingInvite
+                ? null
+                : _shareInvite,
             icon: _isCreatingInvite
                 ? const SizedBox(
                     width: 22,
                     height: 22,
-                    child: CircularProgressIndicator(
+                    child:
+                        CircularProgressIndicator(
                       strokeWidth: 2,
                     ),
                   )
@@ -327,7 +366,8 @@ class _FriendsPageState extends State<FriendsPage> {
 
     if (_errorMessage != null) {
       return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics:
+            const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 80),
@@ -353,24 +393,35 @@ class _FriendsPageState extends State<FriendsPage> {
     }
 
     return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        120,
+      ),
       children: [
         TextField(
           controller: _searchController,
           decoration: InputDecoration(
             hintText: 'Search friends',
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: _searchController.text.isEmpty
-                ? null
-                : IconButton(
-                    onPressed: _searchController.clear,
-                    icon: const Icon(Icons.close),
-                  ),
+            prefixIcon:
+                const Icon(Icons.search),
+            suffixIcon:
+                _searchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed:
+                            _searchController.clear,
+                        icon:
+                            const Icon(Icons.close),
+                      ),
             filled: true,
             fillColor: Colors.white,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius:
+                  BorderRadius.circular(18),
               borderSide: BorderSide.none,
             ),
           ),
@@ -386,7 +437,8 @@ class _FriendsPageState extends State<FriendsPage> {
             const SizedBox(height: 12),
             _buildFriendsCard(
               _friendsWhoOweYou,
-              balanceType: FriendBalanceType.owesYou,
+              balanceType:
+                  FriendBalanceType.owesYou,
             ),
             const SizedBox(height: 26),
           ],
@@ -395,7 +447,8 @@ class _FriendsPageState extends State<FriendsPage> {
             const SizedBox(height: 12),
             _buildFriendsCard(
               _friendsYouOwe,
-              balanceType: FriendBalanceType.youOwe,
+              balanceType:
+                  FriendBalanceType.youOwe,
             ),
             const SizedBox(height: 26),
           ],
@@ -404,7 +457,8 @@ class _FriendsPageState extends State<FriendsPage> {
             const SizedBox(height: 12),
             _buildFriendsCard(
               _settledFriends,
-              balanceType: FriendBalanceType.settled,
+              balanceType:
+                  FriendBalanceType.settled,
             ),
           ],
           if (_filteredFriends.isEmpty)
@@ -426,7 +480,8 @@ class _FriendsPageState extends State<FriendsPage> {
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
         children: [
           const Text(
             'Overall Balance',
@@ -437,7 +492,9 @@ class _FriendsPageState extends State<FriendsPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            _formatOverallBalance(overallBalance),
+            _formatOverallBalance(
+              overallBalance,
+            ),
             style: const TextStyle(
               color: Colors.white,
               fontSize: 34,
@@ -451,7 +508,8 @@ class _FriendsPageState extends State<FriendsPage> {
                 child: _buildBalanceBreakdown(
                   label: 'You are owed',
                   amount: _formatMoney(
-                    _balanceSummary.owedToYouPence,
+                    _balanceSummary
+                        .owedToYouPence,
                   ),
                 ),
               ),
@@ -523,7 +581,8 @@ class _FriendsPageState extends State<FriendsPage> {
         ),
       ),
       child: Column(
-        children: List.generate(friends.length, (index) {
+        children:
+            List.generate(friends.length, (index) {
           final friend = friends[index];
 
           return Column(
@@ -548,7 +607,12 @@ class _FriendsPageState extends State<FriendsPage> {
     Map<String, dynamic> friend, {
     required FriendBalanceType balanceType,
   }) {
-    final name = friend['name']?.toString() ?? 'Friend';
+    final name =
+        friend['name']?.toString() ?? 'Friend';
+
+    final avatarPath =
+        friend['avatar_path']?.toString();
+
     final balancePence =
         _readPence(friend['balance_pence']);
 
@@ -557,11 +621,13 @@ class _FriendsPageState extends State<FriendsPage> {
 
     switch (balanceType) {
       case FriendBalanceType.owesYou:
-        balanceText = _formatMoney(balancePence);
+        balanceText =
+            _formatMoney(balancePence);
         balanceColor = AppColors.success;
 
       case FriendBalanceType.youOwe:
-        balanceText = _formatMoney(balancePence);
+        balanceText =
+            _formatMoney(balancePence);
         balanceColor = AppColors.danger;
 
       case FriendBalanceType.settled:
@@ -570,20 +636,15 @@ class _FriendsPageState extends State<FriendsPage> {
     }
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(
+      contentPadding:
+          const EdgeInsets.symmetric(
         horizontal: 16,
         vertical: 5,
       ),
-      leading: CircleAvatar(
-        backgroundColor:
-            AppColors.primary.withValues(alpha: 0.12),
-        child: Text(
-          _friendInitial(name),
-          style: const TextStyle(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
+      leading: ProfileAvatar(
+        avatarPath: avatarPath,
+        name: name,
+        radius: 22,
       ),
       title: Text(
         name,
@@ -606,9 +667,11 @@ class _FriendsPageState extends State<FriendsPage> {
         ],
       ),
       onTap: () {
-        final friendId = friend['id']?.toString();
+        final friendId =
+            friend['id']?.toString();
 
-        if (friendId == null || friendId.isEmpty) {
+        if (friendId == null ||
+            friendId.isEmpty) {
           return;
         }
 
@@ -618,6 +681,7 @@ class _FriendsPageState extends State<FriendsPage> {
             builder: (_) => FriendDetailPage(
               friendId: friendId,
               friendName: name,
+              friendAvatarPath: avatarPath,
             ),
           ),
         );
@@ -663,9 +727,12 @@ class _FriendsPageState extends State<FriendsPage> {
           ),
           const SizedBox(height: 20),
           FilledButton.icon(
-            onPressed:
-                _isCreatingInvite ? null : _shareInvite,
-            icon: const Icon(Icons.ios_share_outlined),
+            onPressed: _isCreatingInvite
+                ? null
+                : _shareInvite,
+            icon: const Icon(
+              Icons.ios_share_outlined,
+            ),
             label: const Text('Add Friend'),
           ),
         ],
@@ -675,7 +742,8 @@ class _FriendsPageState extends State<FriendsPage> {
 
   Widget _buildNoSearchResults() {
     return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 40),
+      padding:
+          EdgeInsets.symmetric(vertical: 40),
       child: Center(
         child: Text(
           'No matching friends found.',

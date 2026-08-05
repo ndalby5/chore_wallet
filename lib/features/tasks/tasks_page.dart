@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../theme/app_colors.dart';
+import '../../widgets/profile_avatar.dart';
 import 'task_detail_page.dart';
 
 class TasksPage extends StatefulWidget {
@@ -34,40 +35,113 @@ class _TasksPageState extends State<TasksPage> {
         _errorMessage = 'You need to sign in again.';
         _isLoading = false;
       });
+
       return;
     }
 
     try {
-      final rows = await Supabase.instance.client
+      final taskRows = await Supabase.instance.client
           .from('tasks')
           .select()
           .or(
             'assigned_to.eq.${currentUser.id},'
             'assigned_by.eq.${currentUser.id}',
           )
-          .order('created_at', ascending: false);
+          .order(
+            'created_at',
+            ascending: false,
+          );
 
-      final tasks = List<Map<String, dynamic>>.from(rows);
+      final tasks = List<Map<String, dynamic>>.from(
+        taskRows,
+      );
+
+      final profileIds = tasks
+          .expand<String>((task) {
+            final assignedBy =
+                task['assigned_by']?.toString();
+
+            final assignedTo =
+                task['assigned_to']?.toString();
+
+            return [
+              if (assignedBy != null) assignedBy,
+              if (assignedTo != null) assignedTo,
+            ];
+          })
+          .toSet()
+          .toList();
+
+      List<Map<String, dynamic>> profiles = [];
+
+      if (profileIds.isNotEmpty) {
+        final profileRows = await Supabase.instance.client
+            .from('profiles')
+            .select(
+              'id, name, avatar_path',
+            )
+            .inFilter(
+              'id',
+              profileIds,
+            );
+
+        profiles = List<Map<String, dynamic>>.from(
+          profileRows,
+        );
+      }
+
+      final profilesById = {
+        for (final profile in profiles)
+          profile['id']?.toString() ?? '': profile,
+      };
+
+      final enrichedTasks = tasks.map((task) {
+        final assignedById =
+            task['assigned_by']?.toString();
+
+        final assignedToId =
+            task['assigned_to']?.toString();
+
+        final otherPersonId =
+            assignedToId == currentUser.id
+                ? assignedById
+                : assignedToId;
+
+        final otherProfile =
+            profilesById[otherPersonId];
+
+        return <String, dynamic>{
+          ...task,
+          'other_person_name':
+              otherProfile?['name']?.toString() ??
+                  'Friend',
+          'other_person_avatar_path':
+              otherProfile?['avatar_path']
+                  ?.toString(),
+        };
+      }).toList();
 
       if (!mounted) return;
 
       setState(() {
-        _myTasks = tasks
+        _myTasks = enrichedTasks
             .where(
               (task) =>
-                  task['assigned_to']?.toString() == currentUser.id,
+                  task['assigned_to']?.toString() ==
+                  currentUser.id,
             )
             .toList();
 
-        _assignedByMe = tasks
+        _assignedByMe = enrichedTasks
             .where(
               (task) =>
-                  task['assigned_by']?.toString() == currentUser.id,
+                  task['assigned_by']?.toString() ==
+                  currentUser.id,
             )
             .toList();
 
-        _isLoading = false;
         _errorMessage = null;
+        _isLoading = false;
       });
     } on PostgrestException catch (error) {
       if (!mounted) return;
@@ -99,7 +173,9 @@ class _TasksPageState extends State<TasksPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Task marked as complete.'),
+          content: Text(
+            'Task marked as complete.',
+          ),
         ),
       );
 
@@ -117,7 +193,9 @@ class _TasksPageState extends State<TasksPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Could not complete the task.'),
+          content: Text(
+            'Could not complete the task.',
+          ),
         ),
       );
     }
@@ -154,13 +232,17 @@ class _TasksPageState extends State<TasksPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Could not approve the task.'),
+          content: Text(
+            'Could not approve the task.',
+          ),
         ),
       );
     }
   }
 
-  Future<void> _openTaskDetails(String taskId) async {
+  Future<void> _openTaskDetails(
+    String taskId,
+  ) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -187,7 +269,10 @@ class _TasksPageState extends State<TasksPage> {
   String _formatReward(dynamic rewardPence) {
     final pence = rewardPence is int
         ? rewardPence
-        : int.tryParse(rewardPence?.toString() ?? '') ?? 0;
+        : int.tryParse(
+              rewardPence?.toString() ?? '',
+            ) ??
+            0;
 
     return '£${(pence / 100).toStringAsFixed(2)}';
   }
@@ -197,7 +282,9 @@ class _TasksPageState extends State<TasksPage> {
       return 'No due date';
     }
 
-    final date = DateTime.tryParse(dueAt.toString());
+    final date = DateTime.tryParse(
+      dueAt.toString(),
+    );
 
     if (date == null) {
       return 'No due date';
@@ -205,21 +292,29 @@ class _TasksPageState extends State<TasksPage> {
 
     final localDate = date.toLocal();
 
-    return '${localDate.day.toString().padLeft(2, '0')}/'
-        '${localDate.month.toString().padLeft(2, '0')}/'
-        '${localDate.year}';
+    final day =
+        localDate.day.toString().padLeft(2, '0');
+
+    final month =
+        localDate.month.toString().padLeft(2, '0');
+
+    return '$day/$month/${localDate.year}';
   }
 
   String _statusLabel(String status) {
     switch (status) {
       case 'completed':
         return 'Awaiting approval';
+
       case 'approved':
         return 'Approved';
+
       case 'declined':
         return 'Declined';
+
       case 'cancelled':
         return 'Cancelled';
+
       default:
         return 'Pending';
     }
@@ -229,11 +324,14 @@ class _TasksPageState extends State<TasksPage> {
     switch (status) {
       case 'completed':
         return AppColors.warning;
+
       case 'approved':
         return AppColors.success;
+
       case 'declined':
       case 'cancelled':
         return AppColors.danger;
+
       default:
         return AppColors.subtitle;
     }
@@ -278,7 +376,8 @@ class _TasksPageState extends State<TasksPage> {
 
     if (_errorMessage != null) {
       return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics:
+            const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 80),
@@ -304,8 +403,14 @@ class _TasksPageState extends State<TasksPage> {
     }
 
     return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        120,
+      ),
       children: [
         const Text(
           'My Tasks',
@@ -316,7 +421,9 @@ class _TasksPageState extends State<TasksPage> {
         ),
         const SizedBox(height: 14),
         if (_myTasks.isEmpty)
-          _buildEmptyCard('No tasks assigned to you.')
+          _buildEmptyCard(
+            'No tasks assigned to you.',
+          )
         else
           ..._myTasks.map(_buildMyTaskCard),
         const SizedBox(height: 30),
@@ -329,16 +436,32 @@ class _TasksPageState extends State<TasksPage> {
         ),
         const SizedBox(height: 14),
         if (_assignedByMe.isEmpty)
-          _buildEmptyCard('You have not assigned any tasks.')
+          _buildEmptyCard(
+            'You have not assigned any tasks.',
+          )
         else
-          ..._assignedByMe.map(_buildAssignedTaskCard),
+          ..._assignedByMe.map(
+            _buildAssignedTaskCard,
+          ),
       ],
     );
   }
 
-  Widget _buildMyTaskCard(Map<String, dynamic> task) {
-    final status = task['status']?.toString() ?? 'pending';
+  Widget _buildMyTaskCard(
+    Map<String, dynamic> task,
+  ) {
+    final status =
+        task['status']?.toString() ?? 'pending';
+
     final taskId = task['id']?.toString();
+
+    final personName =
+        task['other_person_name']?.toString() ??
+            'Friend';
+
+    final avatarPath =
+        task['other_person_avatar_path']
+            ?.toString();
 
     return InkWell(
       borderRadius: BorderRadius.circular(18),
@@ -350,31 +473,59 @@ class _TasksPageState extends State<TasksPage> {
         padding: const EdgeInsets.all(16),
         decoration: _cardDecoration(),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
           children: [
             Row(
               children: [
+                ProfileAvatar(
+                  avatarPath: avatarPath,
+                  name: personName,
+                  radius: 22,
+                ),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    task['title']?.toString() ?? 'Task',
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        task['title']?.toString() ??
+                            'Task',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight:
+                              FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Assigned by $personName',
+                        style: const TextStyle(
+                          color:
+                              AppColors.subtitle,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Text(
-                  _formatReward(task['reward_pence']),
+                  _formatReward(
+                    task['reward_pence'],
+                  ),
                   style: const TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(width: 4),
-                const Icon(Icons.chevron_right),
+                const Icon(
+                  Icons.chevron_right,
+                ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Text(
               _formatDueDate(task['due_at']),
               style: const TextStyle(
@@ -382,12 +533,15 @@ class _TasksPageState extends State<TasksPage> {
               ),
             ),
             const SizedBox(height: 14),
-            if (status == 'pending' && taskId != null)
+            if (status == 'pending' &&
+                taskId != null)
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: () => _completeTask(taskId),
-                  child: const Text('Complete Task'),
+                  onPressed: () =>
+                      _completeTask(taskId),
+                  child:
+                      const Text('Complete Task'),
                 ),
               )
             else
@@ -404,9 +558,21 @@ class _TasksPageState extends State<TasksPage> {
     );
   }
 
-  Widget _buildAssignedTaskCard(Map<String, dynamic> task) {
-    final status = task['status']?.toString() ?? 'pending';
+  Widget _buildAssignedTaskCard(
+    Map<String, dynamic> task,
+  ) {
+    final status =
+        task['status']?.toString() ?? 'pending';
+
     final taskId = task['id']?.toString();
+
+    final personName =
+        task['other_person_name']?.toString() ??
+            'Friend';
+
+    final avatarPath =
+        task['other_person_avatar_path']
+            ?.toString();
 
     return InkWell(
       borderRadius: BorderRadius.circular(18),
@@ -419,20 +585,38 @@ class _TasksPageState extends State<TasksPage> {
         decoration: _cardDecoration(),
         child: Row(
           children: [
+            ProfileAvatar(
+              avatarPath: avatarPath,
+              name: personName,
+              radius: 22,
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
-                    task['title']?.toString() ?? 'Task',
+                    task['title']?.toString() ??
+                        'Task',
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Assigned to $personName',
+                    style: const TextStyle(
+                      color: AppColors.subtitle,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   Text(
-                    _formatDueDate(task['due_at']),
+                    _formatDueDate(
+                      task['due_at'],
+                    ),
                     style: const TextStyle(
                       color: AppColors.subtitle,
                     ),
@@ -450,23 +634,30 @@ class _TasksPageState extends State<TasksPage> {
             ),
             const SizedBox(width: 12),
             Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment:
+                  CrossAxisAlignment.end,
               children: [
                 Text(
-                  _formatReward(task['reward_pence']),
+                  _formatReward(
+                    task['reward_pence'],
+                  ),
                   style: const TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 8),
-                if (status == 'completed' && taskId != null)
+                if (status == 'completed' &&
+                    taskId != null)
                   FilledButton(
-                    onPressed: () => _approveTask(taskId),
+                    onPressed: () =>
+                        _approveTask(taskId),
                     child: const Text('Approve'),
                   )
                 else
-                  const Icon(Icons.chevron_right),
+                  const Icon(
+                    Icons.chevron_right,
+                  ),
               ],
             ),
           ],
