@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../features/account/account_page.dart';
-import '../../features/home/home_page.dart';
-import '../../features/tasks/tasks_page.dart';
 import '../../features/friends/friends_page.dart';
+import '../../features/home/home_page.dart';
 import '../../features/tasks/add_task_page.dart';
+import '../../features/tasks/tasks_page.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -16,35 +16,40 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
 
-  static const List<Widget> _pages = [
-    HomePage(),
-    TasksPage(),
-    FriendsPage(),
-    AccountPage(),
-  ];
-
   void _selectPage(int index) {
     setState(() {
       _selectedIndex = index;
     });
   }
 
+  Future<void> _openAddTask() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AddTaskPage(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final pages = <Widget>[
+      HomePage(
+        onViewTasks: () => _selectPage(1),
+        onViewFriends: () => _selectPage(2),
+      ),
+      const TasksPage(),
+      const FriendsPage(),
+      const AccountPage(),
+    ];
+
     return Scaffold(
       body: IndexedStack(
         index: _selectedIndex,
-        children: _pages,
+        children: pages,
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const AddTaskPage(),
-            ),
-          );
-        },
+        onPressed: _openAddTask,
         backgroundColor: const Color(0xFF6C4DFF),
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
@@ -55,7 +60,8 @@ class _AppShellState extends State<AppShell> {
           ),
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: _selectPage,

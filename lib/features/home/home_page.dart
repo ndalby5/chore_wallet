@@ -8,7 +8,14 @@ import '../../widgets/profile_avatar.dart';
 import '../tasks/task_detail_page.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final VoidCallback onViewTasks;
+  final VoidCallback onViewFriends;
+
+  const HomePage({
+    super.key,
+    required this.onViewTasks,
+    required this.onViewFriends,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -28,7 +35,7 @@ class _HomePageState extends State<HomePage> {
       const BalanceSummary.empty();
 
   List<Map<String, dynamic>> _myTasks = [];
-  List<Map<String, dynamic>> _awaitingApproval = [];
+  List<Map<String, dynamic>> _assignedByMeTasks = [];
   List<Map<String, dynamic>> _recentActivity = [];
 
   @override
@@ -144,16 +151,15 @@ class _HomePageState extends State<HomePage> {
       }
 
       for (final transaction in transactions) {
-        final receiverId =
+        final userId =
             transaction['user_id']?.toString();
 
         final friendId =
             transaction['friend_id']?.toString();
 
-        final otherPersonId =
-            receiverId == currentUser.id
-                ? friendId
-                : receiverId;
+        final otherPersonId = userId == currentUser.id
+            ? friendId
+            : userId;
 
         if (otherPersonId != null &&
             otherPersonId != currentUser.id) {
@@ -215,16 +221,16 @@ class _HomePageState extends State<HomePage> {
 
       final enrichedTransactions =
           transactions.map((transaction) {
-        final receiverId =
+        final userId =
             transaction['user_id']?.toString();
 
         final friendId =
             transaction['friend_id']?.toString();
 
         final otherPersonId =
-            receiverId == currentUser.id
+            userId == currentUser.id
                 ? friendId
-                : receiverId;
+                : userId;
 
         final otherProfile =
             profilesById[otherPersonId];
@@ -252,16 +258,19 @@ class _HomePageState extends State<HomePage> {
           .take(3)
           .toList();
 
-      final awaitingApproval = enrichedTasks
-          .where(
-            (task) =>
-                task['assigned_by']?.toString() ==
-                    currentUser.id &&
-                task['status']?.toString() ==
-                    'completed',
-          )
-          .take(3)
-          .toList();
+      final assignedByMeTasks =
+          enrichedTasks.where((task) {
+        final assignedByCurrentUser =
+            task['assigned_by']?.toString() ==
+                currentUser.id;
+
+        final status =
+            task['status']?.toString() ?? '';
+
+        return assignedByCurrentUser &&
+            (status == 'pending' ||
+                status == 'completed');
+      }).take(3).toList();
 
       final balanceSummary =
           await _balanceService.getBalanceSummary();
@@ -275,7 +284,7 @@ class _HomePageState extends State<HomePage> {
 
         _balanceSummary = balanceSummary;
         _myTasks = myTasks;
-        _awaitingApproval = awaitingApproval;
+        _assignedByMeTasks = assignedByMeTasks;
         _recentActivity = enrichedTransactions;
 
         _errorMessage = null;
@@ -464,6 +473,10 @@ class _HomePageState extends State<HomePage> {
       return 'Yesterday';
     }
 
+    if (difference > 1 && difference < 7) {
+      return '$difference days ago';
+    }
+
     final day =
         localDate.day.toString().padLeft(2, '0');
 
@@ -646,30 +659,49 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         const SizedBox(height: 24),
+
         _buildBalanceCard(),
+
         const SizedBox(height: 30),
-        _buildSectionHeading('My Tasks'),
+
+        _buildSectionHeading(
+          title: 'My Tasks',
+          onPressed: widget.onViewTasks,
+        ),
         const SizedBox(height: 12),
+
         if (_myTasks.isEmpty)
           _buildEmptyCard(
             'You have no tasks to complete.',
           )
         else
           ..._myTasks.map(_buildMyTaskCard),
+
         const SizedBox(height: 30),
-        _buildSectionHeading('Assigned by me'),
+
+        _buildSectionHeading(
+          title: 'Assigned by me',
+          onPressed: widget.onViewTasks,
+        ),
         const SizedBox(height: 12),
-        if (_awaitingApproval.isEmpty)
+
+        if (_assignedByMeTasks.isEmpty)
           _buildEmptyCard(
-            'Nothing is waiting for approval.',
+            'You have no active assigned tasks.',
           )
         else
-          ..._awaitingApproval.map(
-            _buildAwaitingApprovalCard,
+          ..._assignedByMeTasks.map(
+            _buildAssignedByMeCard,
           ),
+
         const SizedBox(height: 30),
-        _buildSectionHeading('Recent Activity'),
+
+        _buildSectionHeading(
+          title: 'Recent Activity',
+          onPressed: widget.onViewFriends,
+        ),
         const SizedBox(height: 12),
+
         if (_recentActivity.isEmpty)
           _buildEmptyCard(
             'Your recent rewards and payments will appear here.',
@@ -684,56 +716,70 @@ class _HomePageState extends State<HomePage> {
     final overall =
         _balanceSummary.overallBalancePence;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Overall Balance',
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _formatOverallBalance(overall),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 34,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _buildBalanceBreakdown(
-                  'You are owed',
-                  _balanceSummary.owedToYouPence,
+    return InkWell(
+      borderRadius: BorderRadius.circular(22),
+      onTap: widget.onViewFriends,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Overall Balance',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
-              ),
-              Container(
-                width: 1,
-                height: 42,
-                color: Colors.white24,
-              ),
-              Expanded(
-                child: _buildBalanceBreakdown(
-                  'You owe',
-                  _balanceSummary.youOwePence,
+                const Icon(
+                  Icons.chevron_right,
+                  color: Colors.white70,
                 ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _formatOverallBalance(overall),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 34,
+                fontWeight: FontWeight.w800,
               ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildBalanceBreakdown(
+                    'You are owed',
+                    _balanceSummary.owedToYouPence,
+                  ),
+                ),
+                Container(
+                  width: 1,
+                  height: 42,
+                  color: Colors.white24,
+                ),
+                Expanded(
+                  child: _buildBalanceBreakdown(
+                    'You owe',
+                    _balanceSummary.youOwePence,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -763,13 +809,41 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSectionHeading(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 21,
-        fontWeight: FontWeight.w800,
-      ),
+  Widget _buildSectionHeading({
+    required String title,
+    required VoidCallback onPressed,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 21,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        TextButton(
+          onPressed: onPressed,
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'View all',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              SizedBox(width: 2),
+              Icon(
+                Icons.chevron_right,
+                size: 19,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -854,7 +928,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildAwaitingApprovalCard(
+  Widget _buildAssignedByMeCard(
     Map<String, dynamic> task,
   ) {
     final taskId = task['id']?.toString();
@@ -866,6 +940,12 @@ class _HomePageState extends State<HomePage> {
     final avatarPath =
         task['other_person_avatar_path']
             ?.toString();
+
+    final status =
+        task['status']?.toString() ?? 'pending';
+
+    final isAwaitingApproval =
+        status == 'completed';
 
     return InkWell(
       borderRadius: BorderRadius.circular(18),
@@ -905,10 +985,14 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   const SizedBox(height: 5),
-                  const Text(
-                    'Awaiting approval',
+                  Text(
+                    isAwaitingApproval
+                        ? 'Awaiting approval'
+                        : 'Waiting to be completed',
                     style: TextStyle(
-                      color: AppColors.warning,
+                      color: isAwaitingApproval
+                          ? AppColors.warning
+                          : AppColors.subtitle,
                       fontWeight: FontWeight.w700,
                     ),
                   ),

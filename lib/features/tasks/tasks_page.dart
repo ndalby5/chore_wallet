@@ -5,6 +5,7 @@ import '../../theme/app_colors.dart';
 import 'task_detail_page.dart';
 import 'widgets/active_task_card.dart';
 import 'widgets/history_task_card.dart';
+import 'widgets/task_filter_chips.dart';
 import 'widgets/task_search_bar.dart';
 import 'widgets/task_tabs.dart';
 
@@ -22,6 +23,9 @@ class _TasksPageState extends State<TasksPage> {
   bool _isLoading = true;
   bool _showHistory = false;
 
+  TaskStatusFilter _selectedFilter =
+      TaskStatusFilter.all;
+
   String? _errorMessage;
 
   List<Map<String, dynamic>> _myTasks = [];
@@ -31,7 +35,9 @@ class _TasksPageState extends State<TasksPage> {
   void initState() {
     super.initState();
 
-    _searchController.addListener(_onSearchChanged);
+    _searchController.addListener(
+      _onSearchChanged,
+    );
 
     _loadTasks();
   }
@@ -59,7 +65,8 @@ class _TasksPageState extends State<TasksPage> {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage = 'You need to sign in again.';
+        _errorMessage =
+            'You need to sign in again.';
         _isLoading = false;
       });
 
@@ -67,17 +74,18 @@ class _TasksPageState extends State<TasksPage> {
     }
 
     try {
-      final taskRows = await Supabase.instance.client
-          .from('tasks')
-          .select()
-          .or(
-            'assigned_to.eq.${currentUser.id},'
-            'assigned_by.eq.${currentUser.id}',
-          )
-          .order(
-            'created_at',
-            ascending: false,
-          );
+      final taskRows =
+          await Supabase.instance.client
+              .from('tasks')
+              .select()
+              .or(
+                'assigned_to.eq.${currentUser.id},'
+                'assigned_by.eq.${currentUser.id}',
+              )
+              .order(
+                'created_at',
+                ascending: false,
+              );
 
       final tasks =
           List<Map<String, dynamic>>.from(
@@ -160,7 +168,8 @@ class _TasksPageState extends State<TasksPage> {
         _myTasks = enrichedTasks
             .where(
               (task) =>
-                  task['assigned_to']?.toString() ==
+                  task['assigned_to']
+                      ?.toString() ==
                   currentUser.id,
             )
             .toList();
@@ -168,7 +177,8 @@ class _TasksPageState extends State<TasksPage> {
         _assignedByMe = enrichedTasks
             .where(
               (task) =>
-                  task['assigned_by']?.toString() ==
+                  task['assigned_by']
+                      ?.toString() ==
                   currentUser.id,
             )
             .toList();
@@ -207,9 +217,10 @@ class _TasksPageState extends State<TasksPage> {
       return true;
     }
 
-    final title =
-        task['title']?.toString().toLowerCase() ??
-            '';
+    final title = task['title']
+            ?.toString()
+            .toLowerCase() ??
+        '';
 
     return title.contains(_searchText);
   }
@@ -235,10 +246,38 @@ class _TasksPageState extends State<TasksPage> {
         status == 'declined';
   }
 
+  bool _matchesSelectedFilter(
+    Map<String, dynamic> task,
+  ) {
+    final status =
+        task['status']?.toString() ?? 'pending';
+
+    switch (_selectedFilter) {
+      case TaskStatusFilter.pending:
+        return status == 'pending';
+
+      case TaskStatusFilter.awaitingApproval:
+        return status == 'completed';
+
+      case TaskStatusFilter.approved:
+        return status == 'approved';
+
+      case TaskStatusFilter.cancelled:
+        return status == 'cancelled';
+
+      case TaskStatusFilter.declined:
+        return status == 'declined';
+
+      case TaskStatusFilter.all:
+        return true;
+    }
+  }
+
   List<Map<String, dynamic>>
       get _activeMyTasks {
     return _myTasks
         .where(_isActiveTask)
+        .where(_matchesSelectedFilter)
         .where(_matchesSearch)
         .toList();
   }
@@ -247,6 +286,7 @@ class _TasksPageState extends State<TasksPage> {
       get _activeAssignedByMe {
     return _assignedByMe
         .where(_isActiveTask)
+        .where(_matchesSelectedFilter)
         .where(_matchesSearch)
         .toList();
   }
@@ -269,6 +309,7 @@ class _TasksPageState extends State<TasksPage> {
       }
 
       if (!_isHistoryTask(task) ||
+          !_matchesSelectedFilter(task) ||
           !_matchesSearch(task)) {
         return false;
       }
@@ -432,6 +473,22 @@ class _TasksPageState extends State<TasksPage> {
     await _loadTasks();
   }
 
+  void _showActiveTasks() {
+    setState(() {
+      _showHistory = false;
+      _selectedFilter =
+          TaskStatusFilter.all;
+    });
+  }
+
+  void _showHistoryTasks() {
+    setState(() {
+      _showHistory = true;
+      _selectedFilter =
+          TaskStatusFilter.all;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -501,21 +558,23 @@ class _TasksPageState extends State<TasksPage> {
           showingHistory: _showHistory,
           activeCount: _activeCount,
           historyCount: _historyCount,
-          onShowActive: () {
-            setState(() {
-              _showHistory = false;
-            });
-          },
-          onShowHistory: () {
-            setState(() {
-              _showHistory = true;
-            });
-          },
+          onShowActive: _showActiveTasks,
+          onShowHistory: _showHistoryTasks,
         ),
         const SizedBox(height: 16),
         TaskSearchBar(
           controller: _searchController,
           showingHistory: _showHistory,
+        ),
+        const SizedBox(height: 14),
+        TaskFilterChips(
+          showingHistory: _showHistory,
+          selectedFilter: _selectedFilter,
+          onChanged: (filter) {
+            setState(() {
+              _selectedFilter = filter;
+            });
+          },
         ),
         const SizedBox(height: 26),
         if (_showHistory)
@@ -528,12 +587,14 @@ class _TasksPageState extends State<TasksPage> {
 
   Widget _buildActiveSection() {
     final noMatches =
-        _searchText.isNotEmpty &&
+        (_searchText.isNotEmpty ||
+            _selectedFilter !=
+                TaskStatusFilter.all) &&
         _activeMyTasks.isEmpty &&
         _activeAssignedByMe.isEmpty;
 
     if (noMatches) {
-      return _buildNoSearchResults();
+      return _buildNoMatchingTasks();
     }
 
     return Column(
@@ -550,9 +611,7 @@ class _TasksPageState extends State<TasksPage> {
         const SizedBox(height: 14),
         if (_activeMyTasks.isEmpty)
           _buildEmptyCard(
-            _searchText.isEmpty
-                ? 'You have no active tasks.'
-                : 'No matching tasks assigned to you.',
+            'You have no active tasks.',
           )
         else
           ..._activeMyTasks.map((task) {
@@ -564,12 +623,14 @@ class _TasksPageState extends State<TasksPage> {
               assignedByCurrentUser: false,
               onTap: taskId == null
                   ? null
-                  : () =>
-                      _openTaskDetails(taskId),
+                  : () => _openTaskDetails(
+                        taskId,
+                      ),
               onComplete: taskId == null
                   ? null
-                  : () =>
-                      _completeTask(taskId),
+                  : () => _completeTask(
+                        taskId,
+                      ),
             );
           }),
         const SizedBox(height: 30),
@@ -584,9 +645,7 @@ class _TasksPageState extends State<TasksPage> {
         const SizedBox(height: 14),
         if (_activeAssignedByMe.isEmpty)
           _buildEmptyCard(
-            _searchText.isEmpty
-                ? 'You have no active assigned tasks.'
-                : 'No matching tasks assigned by you.',
+            'You have no active assigned tasks.',
           )
         else
           ..._activeAssignedByMe.map((task) {
@@ -598,12 +657,14 @@ class _TasksPageState extends State<TasksPage> {
               assignedByCurrentUser: true,
               onTap: taskId == null
                   ? null
-                  : () =>
-                      _openTaskDetails(taskId),
+                  : () => _openTaskDetails(
+                        taskId,
+                      ),
               onApprove: taskId == null
                   ? null
-                  : () =>
-                      _approveTask(taskId),
+                  : () => _approveTask(
+                        taskId,
+                      ),
             );
           }),
       ],
@@ -612,8 +673,10 @@ class _TasksPageState extends State<TasksPage> {
 
   Widget _buildHistorySection() {
     if (_historyTasks.isEmpty &&
-        _searchText.isNotEmpty) {
-      return _buildNoSearchResults();
+        (_searchText.isNotEmpty ||
+            _selectedFilter !=
+                TaskStatusFilter.all)) {
+      return _buildNoMatchingTasks();
     }
 
     if (_historyTasks.isEmpty) {
@@ -628,7 +691,8 @@ class _TasksPageState extends State<TasksPage> {
           CrossAxisAlignment.start,
       children: [
         Text(
-          'Task History (${_historyTasks.length})',
+          'Task History '
+          '(${_historyTasks.length})',
           style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w800,
@@ -641,7 +705,7 @@ class _TasksPageState extends State<TasksPage> {
 
           final assignedByCurrentUser =
               task['assigned_by']?.toString() ==
-              currentUserId;
+                  currentUserId;
 
           return HistoryTaskCard(
             task: task,
@@ -649,15 +713,16 @@ class _TasksPageState extends State<TasksPage> {
                 assignedByCurrentUser,
             onTap: taskId == null
                 ? null
-                : () =>
-                    _openTaskDetails(taskId),
+                : () => _openTaskDetails(
+                      taskId,
+                    ),
           );
         }),
       ],
     );
   }
 
-  Widget _buildNoSearchResults() {
+  Widget _buildNoMatchingTasks() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(28),
@@ -665,7 +730,7 @@ class _TasksPageState extends State<TasksPage> {
       child: Column(
         children: [
           const Icon(
-            Icons.search_off_outlined,
+            Icons.filter_alt_off_outlined,
             size: 44,
             color: AppColors.primary,
           ),
@@ -678,22 +743,30 @@ class _TasksPageState extends State<TasksPage> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            'No task titles match '
-            '“${_searchController.text.trim()}”.',
+          const Text(
+            'Try changing the search text or selecting a different filter.',
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.subtitle,
               height: 1.4,
             ),
           ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
-            onPressed:
-                _searchController.clear,
-            icon: const Icon(Icons.close),
-            label:
-                const Text('Clear Search'),
+            onPressed: () {
+              _searchController.clear();
+
+              setState(() {
+                _selectedFilter =
+                    TaskStatusFilter.all;
+              });
+            },
+            icon: const Icon(
+              Icons.refresh,
+            ),
+            label: const Text(
+              'Clear Search and Filter',
+            ),
           ),
         ],
       ),
@@ -722,8 +795,7 @@ class _TasksPageState extends State<TasksPage> {
           ),
           SizedBox(height: 8),
           Text(
-            'Approved, cancelled and declined '
-            'tasks will appear here.',
+            'Approved, cancelled and declined tasks will appear here.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.subtitle,

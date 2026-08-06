@@ -31,8 +31,10 @@ class _FriendDetailPageState
 
   bool _isLoading = true;
   String? _errorMessage;
+  String? _undoingPaymentId;
 
   int _balancePence = 0;
+
   List<Map<String, dynamic>> _transactions = [];
 
   @override
@@ -53,13 +55,13 @@ class _FriendDetailPageState
             'You need to sign in again.';
         _isLoading = false;
       });
+
       return;
     }
 
     try {
       final balance =
-          await _balanceService
-              .getBalanceWithFriend(
+          await _balanceService.getBalanceWithFriend(
         widget.friendId,
       );
 
@@ -68,7 +70,8 @@ class _FriendDetailPageState
               .from('transactions')
               .select(
                 'id, user_id, friend_id, task_id, '
-                'amount_pence, type, note, created_at',
+                'amount_pence, type, note, created_at, '
+                'created_by, can_edit, edited_at',
               )
               .or(
                 'and(user_id.eq.${currentUser.id},'
@@ -81,14 +84,23 @@ class _FriendDetailPageState
                 ascending: false,
               );
 
+      final transactions =
+          List<Map<String, dynamic>>.from(
+        transactionRows,
+      );
+
+      final transactionsWithBalances =
+          _addRunningBalances(
+        transactions,
+        currentUser.id,
+      );
+
       if (!mounted) return;
 
       setState(() {
         _balancePence = balance;
         _transactions =
-            List<Map<String, dynamic>>.from(
-          transactionRows,
-        );
+            transactionsWithBalances;
 
         _errorMessage = null;
         _isLoading = false;
@@ -118,6 +130,44 @@ class _FriendDetailPageState
     }
   }
 
+  List<Map<String, dynamic>> _addRunningBalances(
+    List<Map<String, dynamic>> transactions,
+    String currentUserId,
+  ) {
+    final oldestFirst =
+        transactions.reversed.toList();
+
+    var runningBalancePence = 0;
+
+    final enrichedOldestFirst =
+        oldestFirst.map((transaction) {
+      final amountPence = _readPence(
+        transaction['amount_pence'],
+      );
+
+      final receiverId =
+          transaction['user_id']?.toString();
+
+      final otherPersonId =
+          transaction['friend_id']?.toString();
+
+      if (receiverId == currentUserId) {
+        runningBalancePence += amountPence;
+      } else if (otherPersonId ==
+          currentUserId) {
+        runningBalancePence -= amountPence;
+      }
+
+      return <String, dynamic>{
+        ...transaction,
+        'running_balance_pence':
+            runningBalancePence,
+      };
+    }).toList();
+
+    return enrichedOldestFirst.reversed.toList();
+  }
+
   Future<void> _refreshPage() async {
     setState(() {
       _isLoading = true;
@@ -141,7 +191,8 @@ class _FriendDetailPageState
     );
 
     if (taskCreated == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
         SnackBar(
           content: Text(
             '${widget.friendName} has been assigned the task.',
@@ -166,13 +217,149 @@ class _FriendDetailPageState
     );
 
     if (paymentRecorded == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
         const SnackBar(
-          content: Text('Payment recorded.'),
+          content: Text(
+            'Payment recorded.',
+          ),
         ),
       );
 
       await _refreshPage();
+    }
+  }
+
+  Future<void> _confirmUndoPayment(
+    Map<String, dynamic> transaction,
+  ) async {
+    if (!_canUndoPayment(transaction)) {
+      return;
+    }
+
+    final amountPence = _readPence(
+      transaction['amount_pence'],
+    );
+
+    final shouldUndo =
+        await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: const Icon(
+            Icons.undo_rounded,
+            color: AppColors.danger,
+            size: 34,
+          ),
+          title: const Text(
+            'Undo this payment?',
+          ),
+          content: Text(
+            'This will remove your payment of '
+            '${_formatMoney(amountPence)} to '
+            '${widget.friendName} and restore the '
+            'previous balance between you.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  dialogContext,
+                  false,
+                );
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(
+                  dialogContext,
+                  true,
+                );
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor:
+                    AppColors.danger,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text(
+                'Undo Payment',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldUndo != true || !mounted) {
+      return;
+    }
+
+    await _undoPayment(transaction);
+  }
+
+  Future<void> _undoPayment(
+    Map<String, dynamic> transaction,
+  ) async {
+    final paymentId =
+        transaction['id']?.toString();
+
+    if (paymentId == null ||
+        paymentId.isEmpty ||
+        !_canUndoPayment(transaction)) {
+      return;
+    }
+
+    setState(() {
+      _undoingPaymentId = paymentId;
+    });
+
+    try {
+      await Supabase.instance.client.rpc(
+        'delete_payment',
+        params: {
+          'p_payment_id': paymentId,
+        },
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        SnackBar(
+          content: Text(
+            'Payment to ${widget.friendName} undone.',
+          ),
+        ),
+      );
+
+      await _loadPage();
+    } on PostgrestException catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not undo the payment.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _undoingPaymentId = null;
+        });
+      }
     }
   }
 
@@ -187,20 +374,21 @@ class _FriendDetailPageState
         0;
   }
 
+  bool _readBool(dynamic value) {
+    if (value is bool) {
+      return value;
+    }
+
+    return value?.toString().toLowerCase() ==
+        'true';
+  }
+
   String _formatMoney(int pence) {
     return '£${(pence.abs() / 100).toStringAsFixed(2)}';
   }
 
   String get _balanceAmount {
-    if (_balancePence > 0) {
-      return '+${_formatMoney(_balancePence)}';
-    }
-
-    if (_balancePence < 0) {
-      return '-${_formatMoney(_balancePence)}';
-    }
-
-    return '£0.00';
+    return _formatMoney(_balancePence);
   }
 
   String get _balanceMessage {
@@ -228,6 +416,30 @@ class _FriendDetailPageState
     }
 
     final localDate = date.toLocal();
+    final now = DateTime.now();
+
+    final today = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    );
+
+    final transactionDay = DateTime(
+      localDate.year,
+      localDate.month,
+      localDate.day,
+    );
+
+    final difference =
+        today.difference(transactionDay).inDays;
+
+    if (difference == 0) {
+      return 'Today';
+    }
+
+    if (difference == 1) {
+      return 'Yesterday';
+    }
 
     final day = localDate.day
         .toString()
@@ -240,7 +452,7 @@ class _FriendDetailPageState
     return '$day/$month/${localDate.year}';
   }
 
-  bool _isMoneyOwedToCurrentUser(
+  bool _benefitsCurrentUser(
     Map<String, dynamic> transaction,
   ) {
     final currentUserId =
@@ -250,6 +462,34 @@ class _FriendDetailPageState
         currentUserId;
   }
 
+  bool _isPayment(
+    Map<String, dynamic> transaction,
+  ) {
+    return transaction['type']?.toString() ==
+        'payment';
+  }
+
+  bool _canUndoPayment(
+    Map<String, dynamic> transaction,
+  ) {
+    final currentUserId =
+        Supabase.instance.client.auth.currentUser?.id;
+
+    if (currentUserId == null) {
+      return false;
+    }
+
+    final createdBy =
+        transaction['created_by']?.toString();
+
+    final canEdit =
+        _readBool(transaction['can_edit']);
+
+    return _isPayment(transaction) &&
+        createdBy == currentUserId &&
+        canEdit;
+  }
+
   String _transactionAmount(
     Map<String, dynamic> transaction,
   ) {
@@ -257,25 +497,80 @@ class _FriendDetailPageState
       transaction['amount_pence'],
     );
 
-    if (_isMoneyOwedToCurrentUser(
-      transaction,
-    )) {
-      return '+${_formatMoney(amountPence)}';
-    }
-
-    return '-${_formatMoney(amountPence)}';
+    return _formatMoney(amountPence);
   }
 
-  Color _transactionAmountColor(
+  String _transactionTitle(
     Map<String, dynamic> transaction,
   ) {
-    if (_isMoneyOwedToCurrentUser(
-      transaction,
-    )) {
+    final note = transaction['note']
+        ?.toString()
+        .trim();
+
+    if (_isPayment(transaction)) {
+      if (_benefitsCurrentUser(transaction)) {
+        return 'You were paid';
+      }
+
+      return 'You paid ${widget.friendName}';
+    }
+
+    if (note != null && note.isNotEmpty) {
+      return note;
+    }
+
+    final type =
+        transaction['type']?.toString();
+
+    switch (type) {
+      case 'adjustment':
+        return 'Balance adjustment';
+
+      case 'reward':
+      default:
+        return 'Task reward';
+    }
+  }
+
+  String _transactionDescription(
+    Map<String, dynamic> transaction,
+  ) {
+    if (_isPayment(transaction)) {
+      if (_benefitsCurrentUser(transaction)) {
+        return 'You were paid';
+      }
+
+      return 'You paid';
+    }
+
+    if (_benefitsCurrentUser(transaction)) {
+      return 'You earned';
+    }
+
+    return 'You owe';
+  }
+
+  Color _transactionColour(
+    Map<String, dynamic> transaction,
+  ) {
+    if (_isPayment(transaction)) {
+      return AppColors.subtitle;
+    }
+
+    if (_benefitsCurrentUser(transaction)) {
       return AppColors.success;
     }
 
     return AppColors.danger;
+  }
+
+  Color _transactionIconBackground(
+    Map<String, dynamic> transaction,
+  ) {
+    final colour =
+        _transactionColour(transaction);
+
+    return colour.withValues(alpha: 0.1);
   }
 
   IconData _transactionIcon(
@@ -297,32 +592,52 @@ class _FriendDetailPageState
     }
   }
 
-  String _transactionTitle(
+  String _runningBalanceText(
     Map<String, dynamic> transaction,
   ) {
-    final note =
-        transaction['note']
-            ?.toString()
-            .trim();
+    final balancePence = _readPence(
+      transaction['running_balance_pence'],
+    );
 
-    if (note != null && note.isNotEmpty) {
-      return note;
+    if (balancePence > 0) {
+      return 'They owe you '
+          '${_formatMoney(balancePence)}';
     }
 
-    final type =
-        transaction['type']?.toString();
-
-    switch (type) {
-      case 'payment':
-        return 'Payment';
-
-      case 'adjustment':
-        return 'Balance adjustment';
-
-      case 'reward':
-      default:
-        return 'Task reward';
+    if (balancePence < 0) {
+      return 'You owe '
+          '${_formatMoney(balancePence)}';
     }
+
+    return 'Settled up';
+  }
+
+  Color _runningBalanceColour(
+    Map<String, dynamic> transaction,
+  ) {
+    final balancePence = _readPence(
+      transaction['running_balance_pence'],
+    );
+
+    if (balancePence > 0) {
+      return AppColors.success;
+    }
+
+    if (balancePence < 0) {
+      return AppColors.danger;
+    }
+
+    return AppColors.subtitle;
+  }
+
+  bool _isUndoing(
+    Map<String, dynamic> transaction,
+  ) {
+    final paymentId =
+        transaction['id']?.toString();
+
+    return paymentId != null &&
+        paymentId == _undoingPaymentId;
   }
 
   @override
@@ -336,7 +651,8 @@ class _FriendDetailPageState
             fontWeight: FontWeight.w800,
           ),
         ),
-        backgroundColor: AppColors.background,
+        backgroundColor:
+            AppColors.background,
       ),
       body: SafeArea(
         child: RefreshIndicator(
@@ -392,7 +708,10 @@ class _FriendDetailPageState
         children: [
           FloatingActionButton.extended(
             heroTag: 'record_payment',
-            onPressed: _openRecordPayment,
+            onPressed:
+                _undoingPaymentId == null
+                    ? _openRecordPayment
+                    : null,
             backgroundColor: Colors.white,
             foregroundColor:
                 AppColors.primary,
@@ -410,7 +729,10 @@ class _FriendDetailPageState
           const SizedBox(height: 12),
           FloatingActionButton.extended(
             heroTag: 'add_task',
-            onPressed: _openAddTask,
+            onPressed:
+                _undoingPaymentId == null
+                    ? _openAddTask
+                    : null,
             backgroundColor:
                 AppColors.primary,
             foregroundColor: Colors.white,
@@ -434,7 +756,8 @@ class _FriendDetailPageState
     return Column(
       children: [
         ProfileAvatar(
-          avatarPath: widget.friendAvatarPath,
+          avatarPath:
+              widget.friendAvatarPath,
           name: widget.friendName,
           radius: 46,
         ),
@@ -500,65 +823,178 @@ class _FriendDetailPageState
             final transaction =
                 _transactions[index];
 
+            final colour =
+                _transactionColour(
+              transaction,
+            );
+
+            final canUndo =
+                _canUndoPayment(transaction);
+
             return Column(
               children: [
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 7,
+                Padding(
+                  padding:
+                      const EdgeInsets.fromLTRB(
+                    16,
+                    16,
+                    16,
+                    12,
                   ),
-                  leading: CircleAvatar(
-                    backgroundColor:
-                        AppColors.primary
-                            .withValues(
-                      alpha: 0.12,
-                    ),
-                    child: Icon(
-                      _transactionIcon(
-                        transaction,
+                  child: Row(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 23,
+                        backgroundColor:
+                            _transactionIconBackground(
+                          transaction,
+                        ),
+                        child: Icon(
+                          _transactionIcon(
+                            transaction,
+                          ),
+                          color: colour,
+                        ),
                       ),
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  title: Text(
-                    _transactionTitle(
-                      transaction,
-                    ),
-                    style: const TextStyle(
-                      fontWeight:
-                          FontWeight.w700,
-                    ),
-                  ),
-                  subtitle: Text(
-                    _formatDate(
-                      transaction[
-                          'created_at'],
-                    ),
-                    style: const TextStyle(
-                      color:
-                          AppColors.subtitle,
-                    ),
-                  ),
-                  trailing: Text(
-                    _transactionAmount(
-                      transaction,
-                    ),
-                    style: TextStyle(
-                      color:
-                          _transactionAmountColor(
-                        transaction,
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _transactionTitle(
+                                transaction,
+                              ),
+                              style:
+                                  const TextStyle(
+                                fontSize: 16,
+                                fontWeight:
+                                    FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(
+                              height: 4,
+                            ),
+                            Text(
+                              _transactionDescription(
+                                transaction,
+                              ),
+                              style: TextStyle(
+                                color: colour,
+                                fontWeight:
+                                    FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(
+                              height: 5,
+                            ),
+                            Text(
+                              _formatDate(
+                                transaction[
+                                    'created_at'],
+                              ),
+                              style:
+                                  const TextStyle(
+                                color:
+                                    AppColors.subtitle,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      fontWeight:
-                          FontWeight.w800,
-                    ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _transactionAmount(
+                              transaction,
+                            ),
+                            style: TextStyle(
+                              color: colour,
+                              fontSize: 17,
+                              fontWeight:
+                                  FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _runningBalanceText(
+                              transaction,
+                            ),
+                            textAlign:
+                                TextAlign.right,
+                            style: TextStyle(
+                              color:
+                                  _runningBalanceColour(
+                                transaction,
+                              ),
+                              fontSize: 13,
+                              fontWeight:
+                                  FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
+
+                if (canUndo)
+                  Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(
+                      74,
+                      0,
+                      14,
+                      10,
+                    ),
+                    child: Align(
+                      alignment:
+                          Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed:
+                            _isUndoing(transaction)
+                                ? null
+                                : () =>
+                                    _confirmUndoPayment(
+                                      transaction,
+                                    ),
+                        icon: _isUndoing(transaction)
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.undo_rounded,
+                                size: 18,
+                              ),
+                        label: Text(
+                          _isUndoing(transaction)
+                              ? 'Undoing...'
+                              : 'Undo payment',
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor:
+                              AppColors.danger,
+                        ),
+                      ),
+                    ),
+                  ),
+
                 if (index <
                     _transactions.length - 1)
                   const Divider(
                     height: 1,
-                    indent: 72,
+                    indent: 74,
                   ),
               ],
             );
